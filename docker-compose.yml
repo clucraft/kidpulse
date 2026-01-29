@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  kidpulse:
+    build: .
+    container_name: kidpulse
+    restart: unless-stopped
+    environment:
+      # Playground credentials
+      - PLAYGROUND_EMAIL=${PLAYGROUND_EMAIL}
+      - PLAYGROUND_PASSWORD=${PLAYGROUND_PASSWORD}
+
+      # NTFY configuration
+      - NTFY_ENABLED=${NTFY_ENABLED:-true}
+      - NTFY_SERVER=${NTFY_SERVER:-https://ntfy.sh}
+      - NTFY_TOPIC=${NTFY_TOPIC:-kidpulse}
+
+      # Telegram configuration
+      - TELEGRAM_ENABLED=${TELEGRAM_ENABLED:-false}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+
+      # Schedule settings
+      - SUMMARY_TIME=${SUMMARY_TIME:-17:00}
+      - SCRAPE_INTERVAL=${SCRAPE_INTERVAL:-30}
+      - TZ=${TZ:-America/New_York}
+
+      # Run immediately on startup (set to true for testing)
+      - RUN_ON_STARTUP=${RUN_ON_STARTUP:-false}
+
+      # Debug mode
+      - DEBUG=${DEBUG:-false}
+    volumes:
+      # Persist session data to avoid re-login
+      - ./session_data:/app/session_data
+    # Optional: health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
