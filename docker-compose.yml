@@ -2,7 +2,8 @@ version: "3.8"
 
 services:
   kidpulse:
-    build: .
+    image: ghcr.io/clucraft/kidpulse:latest
+    # build: .  # Uncomment to build locally instead
     container_name: kidpulse
     restart: unless-stopped
     environment:
