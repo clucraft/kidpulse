@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KidPulse Dashboard</title>
+    <style>
+        :root {
+            --bg: #1a1a2e;
+            --card-bg: #16213e;
+            --text: #eee;
+            --text-muted: #888;
+            --accent: #4ecca3;
+            --accent-hover: #3db892;
+            --border: #2a2a4a;
+            --success: #4ecca3;
+            --error: #ff6b6b;
+            --warning: #ffd93d;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        h1 { color: var(--accent); font-size: 1.8em; }
+        h2 { color: var(--text); font-size: 1.3em; margin-bottom: 15px; }
+        h3 { color: var(--text-muted); font-size: 1em; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
+        .status-bar {
+            display: flex;
+            gap: 20px;
+            font-size: 0.85em;
+            color: var(--text-muted);
+        }
+        .status-item { display: flex; align-items: center; gap: 6px; }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+        }
+        .status-dot.error { background: var(--error); }
+        .btn {
+            background: var(--accent);
+            color: var(--bg);
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: var(--accent-hover); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-sm { padding: 6px 12px; font-size: 0.85em; }
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid var(--border);
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+        }
+        .child-card { background: var(--card-bg); border-radius: 12px; padding: 20px; border: 1px solid var(--border); }
+        .child-name { font-size: 1.4em; margin-bottom: 15px; color: var(--accent); }
+        .attendance {
+            display: flex;
+            gap: 20px;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 15px;
+            font-size: 0.9em;
+        }
+        .section { margin-bottom: 20px; }
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .section-title { font-size: 1em; display: flex; align-items: center; gap: 8px; }
+        .section-total { color: var(--accent); font-weight: 600; }
+        .event-list { list-style: none; }
+        .event-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.9em;
+        }
+        .event-item:last-child { border-bottom: none; }
+        .event-time { color: var(--text-muted); font-family: monospace; }
+        .event-detail { color: var(--text); }
+        .event-note { color: var(--text-muted); font-style: italic; font-size: 0.85em; }
+        .no-data {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-muted);
+        }
+        .no-data p { margin-bottom: 20px; }
+        .date-nav {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .date-nav a {
+            color: var(--text-muted);
+            text-decoration: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            background: var(--card-bg);
+            font-size: 0.85em;
+            transition: all 0.2s;
+        }
+        .date-nav a:hover, .date-nav a.active {
+            color: var(--accent);
+            background: var(--border);
+        }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--card-bg);
+            border: 1px solid var(--accent);
+            padding: 15px 25px;
+            border-radius: 8px;
+            display: none;
+        }
+        .toast.show { display: block; }
+        .toast.error { border-color: var(--error); }
+        @media (max-width: 600px) {
+            header { flex-direction: column; align-items: flex-start; }
+            .status-bar { flex-direction: column; gap: 8px; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div>
+            <h1>KidPulse</h1>
+            <div class="status-bar">
+                {% if last_scrape %}
+                <div class="status-item">
+                    <span class="status-dot {% if not last_scrape.success %}error{% endif %}"></span>
+                    Last scrape: {{ last_scrape.timestamp[:16].replace('T', ' ') }}
+                    {% if last_scrape.success %}({{ last_scrape.events_count }} events){% else %}(failed){% endif %}
+                </div>
+                {% endif %}
+                {% if next_scheduled %}
+                <div class="status-item">Next: {{ next_scheduled }}</div>
+                {% endif %}
+            </div>
+        </div>
+        <button class="btn" onclick="triggerScrape()" id="scrapeBtn">Scrape Now</button>
+    </header>
+
+    <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <h2>{{ viewing_date if viewing_date else today }}</h2>
+            <div class="date-nav">
+                {% for d in available_dates %}
+                <a href="/day/{{ d }}" {% if d == (viewing_date if viewing_date else today) %}class="active"{% endif %}>
+                    {{ d[5:] }}
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    {% if summary and summary.children %}
+    <div class="grid">
+        {% for child_name, child in summary.children.items() %}
+        <div class="child-card">
+            <div class="child-name">{{ child_name }}</div>
+
+            {% if child.sign_in or child.sign_out %}
+            <div class="attendance">
+                {% if child.sign_in %}<span>In: {{ child.sign_in[11:16] }}</span>{% endif %}
+                {% if child.sign_out %}<span>Out: {{ child.sign_out[11:16] }}</span>{% endif %}
+            </div>
+            {% endif %}
+
+            {% if child.bottles %}
+            <div class="section">
+                <div class="section-header">
+                    <span class="section-title">🍼 Bottles</span>
+                    <span class="section-total">{{ child.totals.bottle_oz }}oz total</span>
+                </div>
+                <ul class="event-list">
+                    {% for b in child.bottles %}
+                    <li class="event-item">
+                        <span class="event-time">{{ b.time[11:16] }}</span>
+                        <span class="event-detail">{{ b.consumed }}oz {{ b.milk_type }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            {% if child.fluids %}
+            <div class="section">
+                <div class="section-header">
+                    <span class="section-title">🥤 Fluids</span>
+                    <span class="section-total">{{ child.totals.fluids_oz }}oz total</span>
+                </div>
+                <ul class="event-list">
+                    {% for f in child.fluids %}
+                    <li class="event-item">
+                        <span class="event-time">{{ f.time[11:16] }}</span>
+                        <span class="event-detail">{{ f.ounces }}oz{% if f.meal %} ({{ f.meal }}){% endif %}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            {% if child.diapers %}
+            <div class="section">
+                <div class="section-header">
+                    <span class="section-title">👶 Diapers</span>
+                    <span class="section-total">{{ child.totals.wet_diapers }}W / {{ child.totals.bm_diapers }}BM</span>
+                </div>
+                <ul class="event-list">
+                    {% for d in child.diapers %}
+                    <li class="event-item">
+                        <span class="event-time">{{ d.time[11:16] }}</span>
+                        <span class="event-detail">
+                            {% if d.type == 'Wet' %}💧{% elif d.type == 'BM' %}💩{% else %}⭕{% endif %}
+                            {{ d.type }}
+                            {% if d.notes %}<span class="event-note">- {{ d.notes }}</span>{% endif %}
+                        </span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            {% if child.naps %}
+            <div class="section">
+                <div class="section-header">
+                    <span class="section-title">😴 Naps</span>
+                    <span class="section-total">{{ child.totals.nap_minutes }}min total</span>
+                </div>
+                <ul class="event-list">
+                    {% for n in child.naps %}
+                    <li class="event-item">
+                        <span class="event-time">{{ n.start[11:16] }} - {{ n.end[11:16] if n.end else '...' }}</span>
+                        <span class="event-detail">
+                            {{ n.duration_minutes }}min
+                            {% if n.position %}<span class="event-note">({{ n.position }})</span>{% endif %}
+                        </span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="card no-data">
+        <p>No data for this date yet.</p>
+        <button class="btn" onclick="triggerScrape()">Scrape Now</button>
+    </div>
+    {% endif %}
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        async function triggerScrape() {
+            const btn = document.getElementById('scrapeBtn');
+            btn.disabled = true;
+            btn.textContent = 'Scraping...';
+
+            try {
+                const res = await fetch('/api/scrape', { method: 'POST' });
+                const data = await res.json();
+
+                if (res.ok) {
+                    showToast('Scrape started! Page will refresh in 30 seconds.', false);
+                    setTimeout(() => location.reload(), 30000);
+                } else {
+                    showToast(data.detail || 'Scrape failed', true);
+                    btn.disabled = false;
+                    btn.textContent = 'Scrape Now';
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+                btn.disabled = false;
+                btn.textContent = 'Scrape Now';
+            }
+        }
+
+        function showToast(message, isError) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast show' + (isError ? ' error' : '');
+            setTimeout(() => toast.className = 'toast', 5000);
+        }
+    </script>
+</body>
+</html>

@@ -15,6 +15,8 @@ Daily event scraper and notification system for Playground (tryplayground.com) c
   - Telegram
 - Supports multiple children
 - Runs on a configurable schedule
+- **Web dashboard** for viewing data
+- **REST API** for integrations (Grafana, Home Assistant, etc.)
 - Docker support for easy deployment (Unraid compatible)
 - Persistent session to minimize logins
 
@@ -76,6 +78,42 @@ docker-compose up -d
 | `TZ` | Timezone | `America/New_York` |
 | `RUN_ON_STARTUP` | Run scrape immediately on start | `false` |
 | `DEBUG` | Enable debug logging | `false` |
+| `WEB_PORT` | Web UI/API port | `8080` |
+
+## Web Dashboard
+
+Access the web UI at `http://localhost:8080` (or your configured port).
+
+Features:
+- View today's summary for all children
+- Browse historical data by date
+- Trigger manual scrapes
+- See scrape status and history
+
+## REST API
+
+All endpoints return JSON.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/status` | GET | Scraper status, last run, next scheduled |
+| `/api/summary/today` | GET | Today's summary data |
+| `/api/summary/{date}` | GET | Summary for specific date (YYYY-MM-DD) |
+| `/api/history` | GET | List of dates with available data |
+| `/api/scrape-log` | GET | Recent scrape history |
+| `/api/scrape` | POST | Trigger manual scrape |
+
+### Example: Get today's data
+
+```bash
+curl http://localhost:8080/api/summary/today
+```
+
+### Example: Trigger scrape without notifications
+
+```bash
+curl -X POST "http://localhost:8080/api/scrape?notify=false"
+```
 
 ## Notification Examples
 

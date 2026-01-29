@@ -4,13 +4,18 @@ import asyncio
 import logging
 import signal
 import sys
+import os
 from datetime import datetime
+from contextlib import asynccontextmanager
 
+import uvicorn
 import schedule
 
 from .config import Config
 from .scraper import PlaygroundScraper
 from .notifiers import NtfyNotifier, TelegramNotifier, NotificationManager
+from .web import storage
+from .web.api import app, set_config, set_next_scrape_time, run_scrape
 
 # Configure logging
 logging.basicConfig(
@@ -33,45 +38,33 @@ def signal_handler(signum, frame):
     shutdown_requested = True
 
 
-async def run_scrape_and_notify(config: Config, notification_manager: NotificationManager) -> None:
-    """Run the scraper and send notifications."""
-    try:
-        async with PlaygroundScraper(config.playground) as scraper:
-            # Login
-            if not await scraper.login():
-                logger.error("Failed to login to Playground")
-                await notification_manager.send_raw(
-                    "Failed to login to Playground. Please check credentials.",
-                    title="KidPulse Error"
-                )
-                return
-
-            # Get today's events
-            summary = await scraper.get_daily_events()
-
-            if summary.event_count == 0:
-                logger.info("No events found for today")
-                return
-
-            # Send notifications
-            results = await notification_manager.send_summary(summary)
-            for notifier, success in results.items():
-                if success:
-                    logger.info(f"Successfully sent notification via {notifier}")
-                else:
-                    logger.error(f"Failed to send notification via {notifier}")
-
-    except Exception as e:
-        logger.exception(f"Error during scrape and notify: {e}")
-        await notification_manager.send_raw(
-            f"Error: {str(e)}",
-            title="KidPulse Error"
-        )
+async def run_scheduled_scrape(config: Config) -> None:
+    """Run the scheduled scrape task."""
+    logger.info("Running scheduled scrape...")
+    await run_scrape(notify=True)
 
 
-def run_scheduled_job(config: Config, notification_manager: NotificationManager) -> None:
-    """Wrapper to run async job from sync scheduler."""
-    asyncio.run(run_scrape_and_notify(config, notification_manager))
+async def scheduler_loop(config: Config) -> None:
+    """Run the scheduler loop."""
+    global shutdown_requested
+
+    # Schedule daily summary
+    schedule.every().day.at(config.summary_time).do(
+        lambda: asyncio.create_task(run_scheduled_scrape(config))
+    )
+    set_next_scrape_time(config.summary_time)
+
+    logger.info(f"Scheduler started. Daily summary at {config.summary_time}")
+
+    # Run immediately on startup if requested
+    if os.getenv("RUN_ON_STARTUP", "false").lower() == "true":
+        logger.info("Running initial scrape on startup...")
+        await run_scrape(notify=True)
+
+    # Main scheduler loop
+    while not shutdown_requested:
+        schedule.run_pending()
+        await asyncio.sleep(60)  # Check every minute
 
 
 async def main() -> None:
@@ -92,41 +85,51 @@ async def main() -> None:
 
     logger.info("KidPulse starting up...")
     logger.info(f"Summary time: {config.summary_time}")
-    logger.info(f"Scrape interval: {config.scrape_interval} minutes")
     logger.info(f"NTFY enabled: {config.ntfy.enabled}")
     logger.info(f"Telegram enabled: {config.telegram.enabled}")
 
-    # Set up notifiers
-    ntfy = NtfyNotifier(config.ntfy) if config.ntfy.enabled else None
-    telegram = TelegramNotifier(config.telegram) if config.telegram.enabled else None
-    notification_manager = NotificationManager(ntfy=ntfy, telegram=telegram)
+    # Initialize database
+    await storage.init_db()
+
+    # Set config for web API
+    set_config(config)
 
     # Set up signal handlers
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 
+    # Get web port from environment
+    web_port = int(os.getenv("WEB_PORT", "8080"))
+
+    # Create uvicorn server
+    uvicorn_config = uvicorn.Config(
+        app,
+        host="0.0.0.0",
+        port=web_port,
+        log_level="info" if not config.debug else "debug",
+    )
+    server = uvicorn.Server(uvicorn_config)
+
     # Send startup notification
+    ntfy = NtfyNotifier(config.ntfy) if config.ntfy.enabled else None
+    telegram = TelegramNotifier(config.telegram) if config.telegram.enabled else None
+    notification_manager = NotificationManager(ntfy=ntfy, telegram=telegram)
+
     await notification_manager.send_raw(
-        f"KidPulse started. Will send daily summary at {config.summary_time}.",
+        f"KidPulse started.\nDaily summary at {config.summary_time}\nWeb UI: http://localhost:{web_port}",
         title="KidPulse Started"
     )
 
-    # Schedule daily summary
-    schedule.every().day.at(config.summary_time).do(
-        run_scheduled_job, config, notification_manager
-    )
+    logger.info(f"Web UI available at http://localhost:{web_port}")
 
-    # Also run immediately on startup if requested via environment
-    import os
-    if os.getenv("RUN_ON_STARTUP", "false").lower() == "true":
-        logger.info("Running initial scrape on startup...")
-        await run_scrape_and_notify(config, notification_manager)
-
-    # Main loop
-    logger.info("Entering main loop...")
-    while not shutdown_requested:
-        schedule.run_pending()
-        await asyncio.sleep(60)  # Check every minute
+    # Run both scheduler and web server
+    try:
+        await asyncio.gather(
+            scheduler_loop(config),
+            server.serve(),
+        )
+    except asyncio.CancelledError:
+        pass
 
     # Graceful shutdown
     logger.info("Shutting down...")
