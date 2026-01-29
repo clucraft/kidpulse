@@ -4,10 +4,16 @@ Daily event scraper and notification system for Playground (tryplayground.com) c
 
 ## Features
 
-- Scrapes daily events from Playground web portal
+- Scrapes daily events from Playground web portal:
+  - Bottle feedings (milk type, ounces offered/consumed)
+  - Diaper changes (wet/BM, notes)
+  - Nap times (start, end, duration, position)
+  - Fluids intake
+  - Check-in/out times
 - Sends daily summary notifications via:
   - NTFY (push notifications)
   - Telegram
+- Supports multiple children
 - Runs on a configurable schedule
 - Docker support for easy deployment (Unraid compatible)
 - Persistent session to minimize logins
@@ -32,11 +38,13 @@ Edit `.env` with your credentials:
 ```env
 PLAYGROUND_EMAIL=your-email@example.com
 PLAYGROUND_PASSWORD=your-password
+# Get from your Playground URL: https://app.tryplayground.com/app/YOUR_ORG_ID/parent/feed
+PLAYGROUND_ORGANIZATION=YOUR_ORG_ID
 
 NTFY_ENABLED=true
 NTFY_TOPIC=your-unique-topic
 
-TELEGRAM_ENABLED=true
+TELEGRAM_ENABLED=false
 TELEGRAM_BOT_TOKEN=your-bot-token
 TELEGRAM_CHAT_ID=your-chat-id
 
@@ -56,6 +64,7 @@ docker-compose up -d
 |----------|-------------|---------|
 | `PLAYGROUND_EMAIL` | Your Playground login email | Required |
 | `PLAYGROUND_PASSWORD` | Your Playground password | Required |
+| `PLAYGROUND_ORGANIZATION` | Organization ID from your Playground URL | Required |
 | `NTFY_ENABLED` | Enable NTFY notifications | `true` |
 | `NTFY_SERVER` | NTFY server URL | `https://ntfy.sh` |
 | `NTFY_TOPIC` | NTFY topic name | `kidpulse` |
@@ -68,11 +77,39 @@ docker-compose up -d
 | `RUN_ON_STARTUP` | Run scrape immediately on start | `false` |
 | `DEBUG` | Enable debug logging | `false` |
 
+## Notification Examples
+
+### NTFY
+```
+=== Ezra ===
+
+Arrived: 08:15 AM
+Left: 03:58 PM
+
+Bottles (2):
+  11:35 AM - Breast milk: 3.5oz consumed
+  02:18 PM - Breast milk: 3.6oz consumed
+  Total: 7.1oz
+
+Diapers (3):
+  12:36 PM - BM - Very watery
+  01:05 PM - Wet
+  03:06 PM - Wet
+  Summary: 2 wet, 1 BM
+
+Naps (1):
+  01:18 PM - 01:38 PM (20 min) - Back
+  Total: 20 minutes
+```
+
+### Telegram
+Includes emojis for bottles, diapers, naps, and attendance with formatted summaries.
+
 ## Setting Up Notifications
 
 ### NTFY
 
-1. Install the NTFY app on your phone
+1. Install the NTFY app on your phone ([iOS](https://apps.apple.com/app/ntfy/id1625396347) / [Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy))
 2. Subscribe to your topic (e.g., `kidpulse`)
 3. Set `NTFY_TOPIC` in your `.env` file
 
@@ -116,9 +153,15 @@ If scraping fails, the page structure may have changed. Enable debug mode and ch
 DEBUG=true
 ```
 
+Screenshots are saved to `session_data/` directory.
+
 ### Session Expired
 
 Delete `session_data/storage_state.json` to force a fresh login.
+
+### No Events Found
+
+The scraper looks for events from today's date. If the Playground page structure changes, the CSS selectors in `src/scraper.py` may need to be updated.
 
 ## License
 

@@ -10,6 +10,7 @@ services:
       # Playground credentials
       - PLAYGROUND_EMAIL=${PLAYGROUND_EMAIL}
       - PLAYGROUND_PASSWORD=${PLAYGROUND_PASSWORD}
+      - PLAYGROUND_ORGANIZATION=${PLAYGROUND_ORGANIZATION}
 
       # NTFY configuration
       - NTFY_ENABLED=${NTFY_ENABLED:-true}

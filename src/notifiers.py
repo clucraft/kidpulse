@@ -9,7 +9,7 @@ from telegram import Bot
 from telegram.constants import ParseMode
 
 from .config import NtfyConfig, TelegramConfig
-from .models import DailySummary, EventType
+from .models import DailySummary, ChildSummary
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ class NtfyNotifier(Notifier):
     async def send(self, summary: DailySummary) -> bool:
         """Send daily summary via NTFY."""
         message = self._format_summary(summary)
-        title = f"KidPulse Daily Summary - {summary.date.strftime('%b %d')}"
+        title = f"KidPulse - {summary.date.strftime('%b %d')}"
         return await self.send_raw(message, title)
 
     async def send_raw(self, message: str, title: Optional[str] = None) -> bool:
@@ -67,31 +67,65 @@ class NtfyNotifier(Notifier):
         lines = []
         date_str = summary.date.strftime("%A, %B %d")
         lines.append(f"Daily Summary for {date_str}")
-        lines.append(f"Total Events: {summary.event_count}")
         lines.append("")
 
-        if summary.child_names:
-            lines.append(f"Children: {', '.join(sorted(summary.child_names))}")
+        for child_name, child in summary.children.items():
+            lines.append(f"=== {child_name} ===")
             lines.append("")
-
-        # Group by event type
-        type_counts = {}
-        for event in summary.events:
-            type_name = event.event_type.value.replace("_", " ").title()
-            type_counts[type_name] = type_counts.get(type_name, 0) + 1
-
-        if type_counts:
-            lines.append("Activity Breakdown:")
-            for event_type, count in sorted(type_counts.items()):
-                lines.append(f"  - {event_type}: {count}")
+            lines.extend(self._format_child_summary(child))
             lines.append("")
-
-        # List events chronologically
-        lines.append("Timeline:")
-        for event in sorted(summary.events, key=lambda e: e.timestamp):
-            lines.append(f"  {event}")
 
         return "\n".join(lines)
+
+    def _format_child_summary(self, child: ChildSummary) -> list[str]:
+        """Format a single child's summary."""
+        lines = []
+
+        # Attendance
+        if child.sign_in:
+            lines.append(f"Arrived: {child.sign_in.strftime('%I:%M %p')}")
+        if child.sign_out:
+            lines.append(f"Left: {child.sign_out.strftime('%I:%M %p')}")
+        if child.sign_in or child.sign_out:
+            lines.append("")
+
+        # Bottles
+        if child.bottles:
+            lines.append(f"Bottles ({len(child.bottles)}):")
+            for b in sorted(child.bottles, key=lambda x: x.time):
+                lines.append(f"  {b.time.strftime('%I:%M %p')} - {b.milk_type}: {b.ounces_consumed}oz consumed")
+            lines.append(f"  Total: {child.total_bottle_consumed}oz")
+            lines.append("")
+
+        # Fluids
+        if child.fluids:
+            lines.append(f"Fluids ({len(child.fluids)}):")
+            for f in sorted(child.fluids, key=lambda x: x.time):
+                meal = f" ({f.meal_type})" if f.meal_type else ""
+                lines.append(f"  {f.time.strftime('%I:%M %p')} - {f.ounces}oz{meal}")
+            lines.append(f"  Total: {child.total_fluids}oz")
+            lines.append("")
+
+        # Diapers
+        if child.diapers:
+            lines.append(f"Diapers ({len(child.diapers)}):")
+            for d in sorted(child.diapers, key=lambda x: x.time):
+                notes = f" - {d.notes}" if d.notes else ""
+                lines.append(f"  {d.time.strftime('%I:%M %p')} - {d.diaper_type}{notes}")
+            lines.append(f"  Summary: {child.wet_diapers} wet, {child.bm_diapers} BM")
+            lines.append("")
+
+        # Naps
+        if child.naps:
+            lines.append(f"Naps ({len(child.naps)}):")
+            for n in sorted(child.naps, key=lambda x: x.start_time):
+                end_str = n.end_time.strftime('%I:%M %p') if n.end_time else "ongoing"
+                duration = f" ({n.duration_minutes} min)" if n.duration_minutes else ""
+                position = f" - {n.position}" if n.position else ""
+                lines.append(f"  {n.start_time.strftime('%I:%M %p')} - {end_str}{duration}{position}")
+            lines.append(f"  Total: {child.total_nap_minutes} minutes")
+
+        return lines
 
 
 class TelegramNotifier(Notifier):
@@ -136,55 +170,72 @@ class TelegramNotifier(Notifier):
         lines.append(f"_{date_str}_")
         lines.append("")
 
-        if summary.child_names:
-            children = ", ".join(sorted(summary.child_names))
-            lines.append(f"*Children:* {children}")
+        for child_name, child in summary.children.items():
+            lines.append(f"*{child_name}*")
             lines.append("")
-
-        # Activity breakdown with emojis
-        emoji_map = {
-            EventType.CHECKIN: ("Check In", "\u2705"),
-            EventType.CHECKOUT: ("Check Out", "\U0001F44B"),
-            EventType.MEAL: ("Meals", "\U0001F37D\uFE0F"),
-            EventType.NAP_START: ("Nap Start", "\U0001F634"),
-            EventType.NAP_END: ("Nap End", "\u2600\uFE0F"),
-            EventType.DIAPER: ("Diaper", "\U0001F476"),
-            EventType.POTTY: ("Potty", "\U0001F6BD"),
-            EventType.PHOTO: ("Photos", "\U0001F4F8"),
-            EventType.VIDEO: ("Videos", "\U0001F3AC"),
-            EventType.ACTIVITY: ("Activities", "\U0001F3A8"),
-            EventType.INCIDENT: ("Incidents", "\u26A0\uFE0F"),
-            EventType.NOTE: ("Notes", "\U0001F4DD"),
-        }
-
-        type_counts = {}
-        for event in summary.events:
-            type_counts[event.event_type] = type_counts.get(event.event_type, 0) + 1
-
-        if type_counts:
-            lines.append("*Activity Summary:*")
-            for event_type, count in sorted(type_counts.items(), key=lambda x: x[0].value):
-                if event_type in emoji_map:
-                    name, emoji = emoji_map[event_type]
-                    lines.append(f"  {emoji} {name}: {count}")
-                else:
-                    lines.append(f"  - {event_type.value}: {count}")
+            lines.extend(self._format_child_summary(child))
             lines.append("")
-
-        # Timeline
-        lines.append("*Timeline:*")
-        for event in sorted(summary.events, key=lambda e: e.timestamp)[:20]:  # Limit to 20 events
-            time_str = event.timestamp.strftime("%I:%M %p")
-            desc = event.description[:50] + "..." if len(event.description) > 50 else event.description
-            if event.child_name:
-                lines.append(f"`{time_str}` *{event.child_name}*: {desc}")
-            else:
-                lines.append(f"`{time_str}` {desc}")
-
-        if summary.event_count > 20:
-            lines.append(f"\n_...and {summary.event_count - 20} more events_")
 
         return "\n".join(lines)
+
+    def _format_child_summary(self, child: ChildSummary) -> list[str]:
+        """Format a single child's summary with emojis."""
+        lines = []
+
+        # Attendance
+        if child.sign_in or child.sign_out:
+            attendance = []
+            if child.sign_in:
+                attendance.append(f"In: {child.sign_in.strftime('%I:%M %p')}")
+            if child.sign_out:
+                attendance.append(f"Out: {child.sign_out.strftime('%I:%M %p')}")
+            lines.append(f"\U0001F3EB " + " | ".join(attendance))
+            lines.append("")
+
+        # Bottles summary
+        if child.bottles:
+            lines.append(f"\U0001F37C *Bottles* ({len(child.bottles)})")
+            for b in sorted(child.bottles, key=lambda x: x.time):
+                lines.append(f"  `{b.time.strftime('%I:%M %p')}` {b.ounces_consumed}oz {b.milk_type}")
+            lines.append(f"  *Total: {child.total_bottle_consumed}oz*")
+            lines.append("")
+
+        # Fluids summary
+        if child.fluids:
+            lines.append(f"\U0001F964 *Fluids* ({len(child.fluids)})")
+            for f in sorted(child.fluids, key=lambda x: x.time):
+                meal = f" _{f.meal_type}_" if f.meal_type else ""
+                lines.append(f"  `{f.time.strftime('%I:%M %p')}` {f.ounces}oz{meal}")
+            lines.append(f"  *Total: {child.total_fluids}oz*")
+            lines.append("")
+
+        # Diapers summary
+        if child.diapers:
+            lines.append(f"\U0001F476 *Diapers* ({len(child.diapers)})")
+            for d in sorted(child.diapers, key=lambda x: x.time):
+                emoji = "\U0001F4A7" if d.diaper_type == "Wet" else "\U0001F4A9" if d.diaper_type == "BM" else "\u2B55"
+                notes = f" _{d.notes}_" if d.notes else ""
+                lines.append(f"  `{d.time.strftime('%I:%M %p')}` {emoji} {d.diaper_type}{notes}")
+            lines.append(f"  *Summary: {child.wet_diapers} wet, {child.bm_diapers} BM*")
+            lines.append("")
+
+        # Naps summary
+        if child.naps:
+            lines.append(f"\U0001F634 *Naps* ({len(child.naps)})")
+            for n in sorted(child.naps, key=lambda x: x.start_time):
+                end_str = n.end_time.strftime('%I:%M %p') if n.end_time else "ongoing"
+                duration = f" ({n.duration_minutes}min)" if n.duration_minutes else ""
+                position = f" _{n.position}_" if n.position else ""
+                lines.append(f"  `{n.start_time.strftime('%I:%M %p')}-{end_str}`{duration}{position}")
+            if child.total_nap_minutes:
+                hours = child.total_nap_minutes // 60
+                mins = child.total_nap_minutes % 60
+                if hours:
+                    lines.append(f"  *Total: {hours}h {mins}m*")
+                else:
+                    lines.append(f"  *Total: {mins} minutes*")
+
+        return lines
 
 
 class NotificationManager:

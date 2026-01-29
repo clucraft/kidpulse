@@ -8,28 +8,20 @@ from pathlib import Path
 from typing import Optional
 
 from playwright.async_api import async_playwright, Browser, Page, BrowserContext
-from bs4 import BeautifulSoup
 
 from .config import PlaygroundConfig
-from .models import Event, EventType, DailySummary
+from .models import (
+    DailySummary,
+    ChildSummary,
+    DiaperEvent,
+    BottleEvent,
+    FluidsEvent,
+    NappingEvent,
+    EventType,
+    Event,
+)
 
 logger = logging.getLogger(__name__)
-
-# Mapping of text patterns to event types
-EVENT_PATTERNS = {
-    r"checked in": EventType.CHECKIN,
-    r"checked out": EventType.CHECKOUT,
-    r"breakfast|lunch|dinner|snack|ate|meal|food": EventType.MEAL,
-    r"nap started|started napping|fell asleep": EventType.NAP_START,
-    r"nap ended|woke up|stopped napping": EventType.NAP_END,
-    r"diaper|changed": EventType.DIAPER,
-    r"potty|bathroom|toilet": EventType.POTTY,
-    r"photo": EventType.PHOTO,
-    r"video": EventType.VIDEO,
-    r"incident|injury|hurt|accident": EventType.INCIDENT,
-    r"medication|medicine": EventType.MEDICATION,
-    r"announcement": EventType.ANNOUNCEMENT,
-}
 
 SESSION_DIR = Path("session_data")
 
@@ -89,57 +81,39 @@ class PlaygroundScraper:
 
         logger.info("Navigating to Playground...")
         await self.page.goto(f"{self.config.base_url}/login")
+        await self.page.wait_for_load_state("networkidle")
 
-        # Check if already logged in
-        if await self._is_logged_in():
+        # Check if already logged in (redirected away from login)
+        if "/login" not in self.page.url:
             logger.info("Already logged in")
             return True
 
         logger.info("Logging in...")
         try:
             # Wait for login form
-            await self.page.wait_for_selector('input[type="email"], input[name="email"]', timeout=10000)
+            await self.page.wait_for_selector('input[type="email"]', timeout=10000)
 
             # Fill credentials
-            await self.page.fill('input[type="email"], input[name="email"]', self.config.email)
+            await self.page.fill('input[type="email"]', self.config.email)
             await self.page.fill('input[type="password"]', self.config.password)
 
             # Click login button
             await self.page.click('button[type="submit"]')
 
-            # Wait for navigation
-            await self.page.wait_for_load_state("networkidle", timeout=15000)
+            # Wait for navigation away from login page
+            await self.page.wait_for_url(lambda url: "/login" not in url, timeout=15000)
+            await self.page.wait_for_load_state("networkidle")
 
-            if await self._is_logged_in():
-                logger.info("Login successful")
-                return True
-            else:
-                logger.error("Login failed - not redirected to dashboard")
-                return False
+            logger.info("Login successful")
+            return True
 
         except Exception as e:
             logger.error(f"Login failed: {e}")
-            return False
-
-    async def _is_logged_in(self) -> bool:
-        """Check if currently logged in."""
-        if not self.page:
-            return False
-
-        # Check URL - if we're on the feed/home page, we're logged in
-        current_url = self.page.url
-        if "/login" in current_url:
-            return False
-
-        # Look for common dashboard elements
-        try:
-            await self.page.wait_for_selector('[data-testid="feed"], .feed, .home, .dashboard', timeout=3000)
-            return True
-        except:
+            await self.screenshot("login_error.png")
             return False
 
     async def get_daily_events(self, date: Optional[datetime] = None) -> DailySummary:
-        """Scrape events for a given day (defaults to today)."""
+        """Scrape events for all children for a given day (defaults to today)."""
         if not self.page:
             raise RuntimeError("Browser not started")
 
@@ -148,118 +122,301 @@ class PlaygroundScraper:
 
         summary = DailySummary(date=date)
 
-        logger.info(f"Fetching events for {date.strftime('%Y-%m-%d')}...")
-
-        # Navigate to the feed/activity page
-        await self.page.goto(f"{self.config.base_url}/feed")
+        # Navigate to the feed page
+        feed_url = f"{self.config.base_url}/app/{self.config.organization}/parent/feed"
+        logger.info(f"Navigating to feed: {feed_url}")
+        await self.page.goto(feed_url)
         await self.page.wait_for_load_state("networkidle")
 
         # Wait for feed content to load
-        try:
-            await self.page.wait_for_selector('.feed-item, .activity-item, [data-testid="activity"]', timeout=10000)
-        except:
-            logger.warning("No feed items found - page structure may have changed")
+        await asyncio.sleep(2)  # Give React time to render
 
-        # Get page content and parse
-        content = await self.page.content()
-        events = self._parse_events(content, date)
+        # Get list of children (tabs)
+        children = await self._get_child_tabs()
+        logger.info(f"Found {len(children)} children: {children}")
 
-        for event in events:
-            summary.add_event(event)
+        # Scrape each child's feed
+        for child_name in children:
+            logger.info(f"Scraping events for {child_name}...")
+            await self._select_child_tab(child_name)
+            await asyncio.sleep(1)  # Wait for feed to update
 
-        logger.info(f"Found {summary.event_count} events")
+            child_summary = await self._scrape_child_feed(child_name, date)
+            summary.children[child_name] = child_summary
+
         return summary
 
-    def _parse_events(self, html: str, date: datetime) -> list[Event]:
-        """Parse events from HTML content."""
-        soup = BeautifulSoup(html, "lxml")
-        events = []
-
-        # Look for activity/feed items - selectors may need adjustment based on actual structure
-        # These are common patterns for activity feeds
-        selectors = [
-            ".feed-item",
-            ".activity-item",
-            "[data-testid='activity']",
-            ".event-card",
-            ".post",
-            ".activity",
-        ]
-
-        items = []
-        for selector in selectors:
-            items.extend(soup.select(selector))
-
-        for item in items:
-            event = self._parse_event_item(item, date)
-            if event:
-                events.append(event)
-
-        return events
-
-    def _parse_event_item(self, item, date: datetime) -> Optional[Event]:
-        """Parse a single event item."""
+    async def _get_child_tabs(self) -> list[str]:
+        """Get list of child names from tabs."""
         try:
-            # Extract text content
-            text = item.get_text(separator=" ", strip=True)
-            if not text:
-                return None
+            # Look for tab elements - adjust selector based on actual structure
+            tabs = await self.page.query_selector_all('[role="tab"], .child-tab, button[class*="tab"]')
 
-            # Try to extract time
-            time_match = re.search(r"(\d{1,2}):(\d{2})\s*(am|pm)?", text, re.IGNORECASE)
-            if time_match:
-                hour = int(time_match.group(1))
-                minute = int(time_match.group(2))
-                ampm = time_match.group(3)
-                if ampm and ampm.lower() == "pm" and hour != 12:
-                    hour += 12
-                elif ampm and ampm.lower() == "am" and hour == 12:
-                    hour = 0
-                timestamp = date.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            else:
-                timestamp = date
+            children = []
+            for tab in tabs:
+                text = await tab.inner_text()
+                text = text.strip()
+                if text and not text.lower() in ["feed", "home", "calendar", "chat"]:
+                    children.append(text)
 
-            # Determine event type
-            event_type = EventType.UNKNOWN
-            text_lower = text.lower()
-            for pattern, etype in EVENT_PATTERNS.items():
-                if re.search(pattern, text_lower):
-                    event_type = etype
-                    break
+            # If no tabs found, try to get child name from header or first feed item
+            if not children:
+                # Try getting from the page content
+                content = await self.page.content()
+                # Look for patterns like "Ezra Aschenberg" in tabs area
+                tab_area = await self.page.query_selector('[class*="tab"], nav')
+                if tab_area:
+                    tab_text = await tab_area.inner_text()
+                    # Split by common separators and filter
+                    parts = re.split(r'[\n\t]+', tab_text)
+                    for part in parts:
+                        part = part.strip()
+                        if part and len(part.split()) >= 2 and not part.lower() in ["feed", "home"]:
+                            children.append(part)
 
-            # Try to extract child name (usually at the start or in a specific element)
-            child_name = None
-            name_elem = item.select_one(".child-name, .student-name, [data-testid='child-name']")
-            if name_elem:
-                child_name = name_elem.get_text(strip=True)
-
-            # Check for media
-            media_url = None
-            img = item.select_one("img")
-            if img and img.get("src"):
-                media_url = img["src"]
-                if event_type == EventType.UNKNOWN:
-                    event_type = EventType.PHOTO
-
-            video = item.select_one("video")
-            if video and video.get("src"):
-                media_url = video["src"]
-                event_type = EventType.VIDEO
-
-            return Event(
-                event_type=event_type,
-                timestamp=timestamp,
-                description=text[:200],  # Truncate long descriptions
-                child_name=child_name,
-                media_url=media_url,
-            )
+            return children if children else ["Child"]
 
         except Exception as e:
-            logger.warning(f"Failed to parse event item: {e}")
-            return None
+            logger.warning(f"Could not get child tabs: {e}")
+            return ["Child"]
+
+    async def _select_child_tab(self, child_name: str) -> None:
+        """Click on a child's tab to show their feed."""
+        try:
+            # Try to find and click the tab with the child's name
+            tab = await self.page.query_selector(f'[role="tab"]:has-text("{child_name}")')
+            if tab:
+                await tab.click()
+                return
+
+            # Alternative: look for any clickable element with the child's name
+            tab = await self.page.query_selector(f'button:has-text("{child_name}")')
+            if tab:
+                await tab.click()
+                return
+
+            # Try text-based selector
+            await self.page.click(f'text="{child_name}"')
+
+        except Exception as e:
+            logger.warning(f"Could not select tab for {child_name}: {e}")
+
+    async def _scrape_child_feed(self, child_name: str, date: datetime) -> ChildSummary:
+        """Scrape the feed for a single child."""
+        child = ChildSummary(name=child_name)
+        today_str = date.strftime("%b %d, %Y")
+
+        # Get all feed items
+        feed_items = await self.page.query_selector_all('[class*="card"], [class*="feed-item"], [class*="activity"], [class*="post"]')
+
+        if not feed_items:
+            # Try a more generic approach - look for repeated list items
+            feed_items = await self.page.query_selector_all('main > div > div')
+
+        logger.info(f"Found {len(feed_items)} potential feed items")
+
+        for item in feed_items:
+            try:
+                text = await item.inner_text()
+                if not text.strip():
+                    continue
+
+                # Check if this is today's event
+                if date.strftime("%b %d") not in text and date.strftime("%B %d") not in text:
+                    # Try alternate date format
+                    if date.strftime("%-m/%-d") not in text and date.strftime("%m/%d") not in text:
+                        continue
+
+                await self._parse_feed_item(text, child, date)
+
+            except Exception as e:
+                logger.debug(f"Error parsing feed item: {e}")
+                continue
+
+        return child
+
+    async def _parse_feed_item(self, text: str, child: ChildSummary, date: datetime) -> None:
+        """Parse a single feed item and add to child summary."""
+        text_lower = text.lower()
+
+        # Extract timestamp from text
+        timestamp = self._extract_timestamp(text, date)
+
+        if "sign in" in text_lower:
+            child.sign_in = timestamp
+
+        elif "sign out" in text_lower:
+            child.sign_out = timestamp
+
+        elif "diaper" in text_lower:
+            diaper = self._parse_diaper(text, timestamp)
+            if diaper:
+                child.diapers.append(diaper)
+
+        elif "bottle" in text_lower:
+            bottle = self._parse_bottle(text, timestamp)
+            if bottle:
+                child.bottles.append(bottle)
+
+        elif "fluids" in text_lower:
+            fluids = self._parse_fluids(text, timestamp)
+            if fluids:
+                child.fluids.append(fluids)
+
+        elif "nap" in text_lower:
+            nap = self._parse_napping(text, date)
+            if nap:
+                child.naps.append(nap)
+
+    def _extract_timestamp(self, text: str, date: datetime) -> datetime:
+        """Extract timestamp from feed item text."""
+        # Look for "Occurred at Jan 29, 2026 3:06 PM" pattern
+        occurred_match = re.search(
+            r"(?:Occurred at|at)\s+\w+\s+\d{1,2},?\s+\d{4}\s+(\d{1,2}):(\d{2})\s*(AM|PM)",
+            text,
+            re.IGNORECASE
+        )
+        if occurred_match:
+            hour = int(occurred_match.group(1))
+            minute = int(occurred_match.group(2))
+            ampm = occurred_match.group(3).upper()
+            if ampm == "PM" and hour != 12:
+                hour += 12
+            elif ampm == "AM" and hour == 12:
+                hour = 0
+            return date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+        # Look for simpler time pattern "3:06 PM"
+        time_match = re.search(r"(\d{1,2}):(\d{2})\s*(AM|PM)", text, re.IGNORECASE)
+        if time_match:
+            hour = int(time_match.group(1))
+            minute = int(time_match.group(2))
+            ampm = time_match.group(3).upper()
+            if ampm == "PM" and hour != 12:
+                hour += 12
+            elif ampm == "AM" and hour == 12:
+                hour = 0
+            return date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+        return date
+
+    def _parse_diaper(self, text: str, timestamp: datetime) -> Optional[DiaperEvent]:
+        """Parse diaper event from text."""
+        # Determine type: Wet, BM, or Dry
+        text_lower = text.lower()
+        if "bm" in text_lower or "bowel" in text_lower:
+            diaper_type = "BM"
+        elif "wet" in text_lower:
+            diaper_type = "Wet"
+        elif "dry" in text_lower:
+            diaper_type = "Dry"
+        else:
+            diaper_type = "Unknown"
+
+        # Extract notes (anything descriptive like "Very watery")
+        notes = None
+        notes_patterns = [
+            r"(very\s+\w+)",
+            r"notes?[:\s]+([^\n]+)",
+        ]
+        for pattern in notes_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                notes = match.group(1).strip()
+                break
+
+        return DiaperEvent(time=timestamp, diaper_type=diaper_type, notes=notes)
+
+    def _parse_bottle(self, text: str, timestamp: datetime) -> Optional[BottleEvent]:
+        """Parse bottle event from text."""
+        # Extract milk type
+        milk_type = "Unknown"
+        if "breast" in text.lower():
+            milk_type = "Breast milk"
+        elif "formula" in text.lower():
+            milk_type = "Formula"
+
+        # Extract ounces offered
+        offered_match = re.search(r"(?:offered|ounces offered)[:\s]*(\d+\.?\d*)", text, re.IGNORECASE)
+        ounces_offered = float(offered_match.group(1)) if offered_match else 0.0
+
+        # Extract ounces consumed
+        consumed_match = re.search(r"(?:consumed|ounces consumed)[:\s]*(\d+\.?\d*)", text, re.IGNORECASE)
+        ounces_consumed = float(consumed_match.group(1)) if consumed_match else 0.0
+
+        # If no specific matches, try to find any number followed by "oz"
+        if ounces_offered == 0 and ounces_consumed == 0:
+            oz_match = re.search(r"(\d+\.?\d*)\s*(?:oz|ounces)", text, re.IGNORECASE)
+            if oz_match:
+                ounces_consumed = float(oz_match.group(1))
+                ounces_offered = ounces_consumed
+
+        return BottleEvent(
+            time=timestamp,
+            milk_type=milk_type,
+            ounces_offered=ounces_offered,
+            ounces_consumed=ounces_consumed,
+        )
+
+    def _parse_fluids(self, text: str, timestamp: datetime) -> Optional[FluidsEvent]:
+        """Parse fluids event from text."""
+        # Extract ounces
+        oz_match = re.search(r"(\d+\.?\d*)\s*(?:oz|ounces)", text, re.IGNORECASE)
+        ounces = float(oz_match.group(1)) if oz_match else 0.0
+
+        # Extract meal type
+        meal_type = None
+        for meal in ["breakfast", "lunch", "dinner", "snack", "am snack", "pm snack"]:
+            if meal in text.lower():
+                meal_type = meal.title()
+                break
+
+        return FluidsEvent(time=timestamp, ounces=ounces, meal_type=meal_type)
+
+    def _parse_napping(self, text: str, date: datetime) -> Optional[NappingEvent]:
+        """Parse napping event from text."""
+        # Look for "From Jan 29, 2026 1:18 PM until 1:38 PM" pattern
+        from_until_match = re.search(
+            r"From\s+\w+\s+\d{1,2},?\s+\d{4}\s+(\d{1,2}):(\d{2})\s*(AM|PM)\s+until\s+(\d{1,2}):(\d{2})\s*(AM|PM)",
+            text,
+            re.IGNORECASE
+        )
+
+        if from_until_match:
+            start_hour = int(from_until_match.group(1))
+            start_minute = int(from_until_match.group(2))
+            start_ampm = from_until_match.group(3).upper()
+            end_hour = int(from_until_match.group(4))
+            end_minute = int(from_until_match.group(5))
+            end_ampm = from_until_match.group(6).upper()
+
+            if start_ampm == "PM" and start_hour != 12:
+                start_hour += 12
+            elif start_ampm == "AM" and start_hour == 12:
+                start_hour = 0
+
+            if end_ampm == "PM" and end_hour != 12:
+                end_hour += 12
+            elif end_ampm == "AM" and end_hour == 12:
+                end_hour = 0
+
+            start_time = date.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+            end_time = date.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
+
+            # Extract position (Back, Side, etc.)
+            position = None
+            for pos in ["back", "side", "stomach", "tummy"]:
+                if pos in text.lower():
+                    position = pos.title()
+                    break
+
+            return NappingEvent(start_time=start_time, end_time=end_time, position=position)
+
+        return None
 
     async def screenshot(self, path: str = "debug_screenshot.png") -> None:
         """Take a screenshot for debugging."""
         if self.page:
-            await self.page.screenshot(path=path)
-            logger.info(f"Screenshot saved to {path}")
+            full_path = SESSION_DIR / path
+            await self.page.screenshot(path=str(full_path))
+            logger.info(f"Screenshot saved to {full_path}")

@@ -1,28 +1,73 @@
 """Data models for KidPulse events."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional
 
 
 class EventType(Enum):
     """Types of events from Playground."""
-    CHECKIN = "check_in"
-    CHECKOUT = "check_out"
-    MEAL = "meal"
-    NAP_START = "nap_start"
-    NAP_END = "nap_end"
+    SIGN_IN = "sign_in"
+    SIGN_OUT = "sign_out"
+    BOTTLE = "bottle"
+    FLUIDS = "fluids"
     DIAPER = "diaper"
-    POTTY = "potty"
+    NAPPING = "napping"
+    MEAL = "meal"
     ACTIVITY = "activity"
     PHOTO = "photo"
-    VIDEO = "video"
     NOTE = "note"
     INCIDENT = "incident"
-    MEDICATION = "medication"
-    ANNOUNCEMENT = "announcement"
     UNKNOWN = "unknown"
+
+
+@dataclass
+class DiaperEvent:
+    """Diaper change event details."""
+    time: datetime
+    diaper_type: str  # "Wet", "BM", "Dry"
+    notes: Optional[str] = None
+
+
+@dataclass
+class BottleEvent:
+    """Bottle feeding event details."""
+    time: datetime
+    milk_type: str  # "Breast milk", "Formula", etc.
+    ounces_offered: float
+    ounces_consumed: float
+
+
+@dataclass
+class FluidsEvent:
+    """Fluids event details."""
+    time: datetime
+    ounces: float
+    meal_type: Optional[str] = None  # "Lunch", "Snack", etc.
+
+
+@dataclass
+class NappingEvent:
+    """Napping event details."""
+    start_time: datetime
+    end_time: Optional[datetime] = None
+    position: Optional[str] = None  # "Back", "Side", etc.
+
+    @property
+    def duration_minutes(self) -> Optional[int]:
+        if self.end_time:
+            delta = self.end_time - self.start_time
+            return int(delta.total_seconds() / 60)
+        return None
+
+
+@dataclass
+class SignEvent:
+    """Sign in/out event details."""
+    time: datetime
+    event_type: str  # "in" or "out"
+    recorded_by: Optional[str] = None
 
 
 @dataclass
@@ -30,58 +75,115 @@ class Event:
     """A single event from Playground."""
     event_type: EventType
     timestamp: datetime
+    child_name: str
     description: str
-    child_name: Optional[str] = None
-    details: Optional[str] = None
-    media_url: Optional[str] = None
-    raw_data: Optional[dict] = None
+    recorded_by: Optional[str] = None
+    details: Optional[dict] = None  # Type-specific details
 
     def __str__(self) -> str:
         time_str = self.timestamp.strftime("%I:%M %p")
-        if self.child_name:
-            return f"[{time_str}] {self.child_name}: {self.description}"
-        return f"[{time_str}] {self.description}"
+        return f"[{time_str}] {self.child_name}: {self.description}"
+
+
+@dataclass
+class ChildSummary:
+    """Summary of events for a single child."""
+    name: str
+    sign_in: Optional[datetime] = None
+    sign_out: Optional[datetime] = None
+    diapers: list[DiaperEvent] = field(default_factory=list)
+    bottles: list[BottleEvent] = field(default_factory=list)
+    fluids: list[FluidsEvent] = field(default_factory=list)
+    naps: list[NappingEvent] = field(default_factory=list)
+    other_events: list[Event] = field(default_factory=list)
+
+    @property
+    def total_bottle_consumed(self) -> float:
+        return sum(b.ounces_consumed for b in self.bottles)
+
+    @property
+    def total_fluids(self) -> float:
+        return sum(f.ounces for f in self.fluids)
+
+    @property
+    def total_nap_minutes(self) -> int:
+        return sum(n.duration_minutes or 0 for n in self.naps)
+
+    @property
+    def wet_diapers(self) -> int:
+        return sum(1 for d in self.diapers if d.diaper_type.lower() == "wet")
+
+    @property
+    def bm_diapers(self) -> int:
+        return sum(1 for d in self.diapers if d.diaper_type.lower() == "bm")
 
 
 @dataclass
 class DailySummary:
     """Summary of all events for a day."""
     date: datetime
-    events: list[Event] = field(default_factory=list)
-    child_names: set[str] = field(default_factory=set)
+    children: dict[str, ChildSummary] = field(default_factory=dict)
 
-    def add_event(self, event: Event) -> None:
-        """Add an event to the summary."""
-        self.events.append(event)
-        if event.child_name:
-            self.child_names.add(event.child_name)
+    def get_or_create_child(self, name: str) -> ChildSummary:
+        """Get or create a child summary."""
+        if name not in self.children:
+            self.children[name] = ChildSummary(name=name)
+        return self.children[name]
 
     @property
-    def event_count(self) -> int:
-        return len(self.events)
-
-    def events_by_type(self, event_type: EventType) -> list[Event]:
-        """Get all events of a specific type."""
-        return [e for e in self.events if e.event_type == event_type]
-
-    def events_by_child(self, child_name: str) -> list[Event]:
-        """Get all events for a specific child."""
-        return [e for e in self.events if e.child_name == child_name]
+    def child_names(self) -> list[str]:
+        return list(self.children.keys())
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
         return {
             "date": self.date.isoformat(),
-            "event_count": self.event_count,
-            "children": list(self.child_names),
-            "events": [
-                {
-                    "type": e.event_type.value,
-                    "time": e.timestamp.isoformat(),
-                    "description": e.description,
-                    "child": e.child_name,
-                    "details": e.details,
+            "children": {
+                name: {
+                    "sign_in": child.sign_in.isoformat() if child.sign_in else None,
+                    "sign_out": child.sign_out.isoformat() if child.sign_out else None,
+                    "bottles": [
+                        {
+                            "time": b.time.isoformat(),
+                            "milk_type": b.milk_type,
+                            "offered": b.ounces_offered,
+                            "consumed": b.ounces_consumed,
+                        }
+                        for b in child.bottles
+                    ],
+                    "fluids": [
+                        {
+                            "time": f.time.isoformat(),
+                            "ounces": f.ounces,
+                            "meal": f.meal_type,
+                        }
+                        for f in child.fluids
+                    ],
+                    "diapers": [
+                        {
+                            "time": d.time.isoformat(),
+                            "type": d.diaper_type,
+                            "notes": d.notes,
+                        }
+                        for d in child.diapers
+                    ],
+                    "naps": [
+                        {
+                            "start": n.start_time.isoformat(),
+                            "end": n.end_time.isoformat() if n.end_time else None,
+                            "duration_minutes": n.duration_minutes,
+                            "position": n.position,
+                        }
+                        for n in child.naps
+                    ],
+                    "totals": {
+                        "bottle_oz": child.total_bottle_consumed,
+                        "fluids_oz": child.total_fluids,
+                        "nap_minutes": child.total_nap_minutes,
+                        "wet_diapers": child.wet_diapers,
+                        "bm_diapers": child.bm_diapers,
+                    },
                 }
-                for e in self.events
-            ],
+                for name, child in self.children.items()
+            },
         }
