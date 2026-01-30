@@ -197,6 +197,7 @@ async def get_status():
             "ntfy_enabled": _config.ntfy.enabled if _config else False,
             "telegram_enabled": _config.telegram.enabled if _config else False,
             "summary_time": _config.summary_time if _config else None,
+            "auth_enabled": _config.auth.enabled if _config else False,
         } if _config else None,
     }
 

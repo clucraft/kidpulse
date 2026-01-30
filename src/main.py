@@ -94,6 +94,7 @@ async def main() -> None:
     logger.info("KidPulse starting up...")
     logger.info(f"Summary time: {config.summary_time}")
     logger.info(f"Scrape interval: {config.scrape_interval} minutes" if config.scrape_interval > 0 else "Scrape interval: disabled")
+    logger.info(f"Auth enabled: {config.auth.enabled}")
     logger.info(f"NTFY enabled: {config.ntfy.enabled}")
     logger.info(f"Telegram enabled: {config.telegram.enabled}")
 
