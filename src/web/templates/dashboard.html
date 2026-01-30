@@ -255,15 +255,35 @@
             <div class="section">
                 <div class="section-header">
                     <span class="section-title">😴 Naps</span>
-                    <span class="section-total">{{ child.totals.nap_minutes }}min total</span>
+                    <span class="section-total">{{ child.totals.nap_minutes if child.totals.nap_minutes else 0 }}min total</span>
                 </div>
                 <ul class="event-list">
                     {% for n in child.naps %}
                     <li class="event-item">
                         <span class="event-time">{{ n.start[11:16] }} - {{ n.end[11:16] if n.end else '...' }}</span>
                         <span class="event-detail">
-                            {{ n.duration_minutes }}min
+                            {% if n.duration_minutes %}{{ n.duration_minutes }}min{% else %}In progress{% endif %}
                             {% if n.position %}<span class="event-note">({{ n.position }})</span>{% endif %}
+                        </span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            {% if child.meals %}
+            <div class="section">
+                <div class="section-header">
+                    <span class="section-title">🍴 Meals</span>
+                    <span class="section-total">{{ child.totals.meals_count }} meals</span>
+                </div>
+                <ul class="event-list">
+                    {% for m in child.meals %}
+                    <li class="event-item">
+                        <span class="event-time">{{ m.time[11:16] }}</span>
+                        <span class="event-detail">
+                            {% if m.type %}<strong>{{ m.type }}:</strong>{% endif %}
+                            {{ m.items[:60] }}{% if m.items|length > 60 %}...{% endif %}
                         </span>
                     </li>
                     {% endfor %}
