@@ -63,6 +63,14 @@ class NappingEvent:
 
 
 @dataclass
+class EatingEvent:
+    """Eating/meal event details."""
+    time: datetime
+    meal_items: str
+    meal_type: Optional[str] = None  # "Breakfast", "Lunch", "Snack", etc.
+
+
+@dataclass
 class SignEvent:
     """Sign in/out event details."""
     time: datetime
@@ -95,6 +103,7 @@ class ChildSummary:
     bottles: list[BottleEvent] = field(default_factory=list)
     fluids: list[FluidsEvent] = field(default_factory=list)
     naps: list[NappingEvent] = field(default_factory=list)
+    meals: list["EatingEvent"] = field(default_factory=list)
     other_events: list[Event] = field(default_factory=list)
 
     @property
@@ -176,12 +185,21 @@ class DailySummary:
                         }
                         for n in child.naps
                     ],
+                    "meals": [
+                        {
+                            "time": m.time.isoformat(),
+                            "items": m.meal_items,
+                            "type": m.meal_type,
+                        }
+                        for m in child.meals
+                    ],
                     "totals": {
                         "bottle_oz": child.total_bottle_consumed,
                         "fluids_oz": child.total_fluids,
                         "nap_minutes": child.total_nap_minutes,
                         "wet_diapers": child.wet_diapers,
                         "bm_diapers": child.bm_diapers,
+                        "meals_count": len(child.meals),
                     },
                 }
                 for name, child in self.children.items()

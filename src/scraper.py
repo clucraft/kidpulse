@@ -19,6 +19,7 @@ from .models import (
     BottleEvent,
     FluidsEvent,
     NappingEvent,
+    EatingEvent,
     EventType,
     Event,
 )
@@ -421,7 +422,8 @@ class PlaygroundScraper:
 
             if expected_classrooms:
                 is_classroom_event = any(classroom in recorder for classroom in expected_classrooms)
-                is_parent_event = len(recorder.split()) >= 2 and recorder.split()[-1].endswith('.')
+                known_classrooms = ["Infant", "Older", "Toddler", "Pre-K", "Preschool"]
+                is_parent_event = not any(c in recorder for c in known_classrooms)
 
                 if not is_classroom_event and not is_parent_event:
                     logger.debug(f"Skipping event recorded by '{recorder}', not {child.name}'s classroom")
@@ -463,6 +465,12 @@ class PlaygroundScraper:
                 child.naps.append(nap)
                 logger.info(f"Parsed nap: {nap.start_time} - {nap.end_time}")
 
+        elif "eating" in text_lower:
+            meal = self._parse_eating(text, timestamp)
+            if meal:
+                child.meals.append(meal)
+                logger.info(f"Parsed meal: {meal.meal_items[:50]}... at {timestamp}")
+
     async def _parse_feed_item(self, text: str, child: ChildSummary, date: datetime) -> None:
         """Parse a single feed item and add to child summary."""
         text_lower = text.lower()
@@ -494,10 +502,13 @@ class PlaygroundScraper:
             expected_classrooms = child_classrooms.get(first_name, [])
 
             # If we know this child's classroom, only accept events from that classroom
-            # Also allow events recorded by parents (names with first+last like "Kyle A")
+            # Also allow events recorded by parents (names like "Kyle A", "Sarah A")
             if expected_classrooms:
                 is_classroom_event = any(classroom in recorder for classroom in expected_classrooms)
-                is_parent_event = len(recorder.split()) >= 2 and recorder.split()[-1].endswith('.')
+                # Parent names are typically "FirstName LastInitial" format (e.g., "Kyle A", "Sarah A")
+                # They are NOT classroom names like "Infant C" or "Older P"
+                known_classrooms = ["Infant", "Older", "Toddler", "Pre-K", "Preschool"]
+                is_parent_event = not any(c in recorder for c in known_classrooms)
 
                 if not is_classroom_event and not is_parent_event:
                     # This event is from a different classroom
@@ -539,6 +550,32 @@ class PlaygroundScraper:
             if nap:
                 child.naps.append(nap)
                 logger.info(f"Parsed nap: {nap.start_time} - {nap.end_time}")
+
+        elif "eating" in text_lower:
+            meal = self._parse_eating(text, timestamp)
+            if meal:
+                child.meals.append(meal)
+                logger.info(f"Parsed meal: {meal.meal_items[:50]}... at {timestamp}")
+
+    def _parse_eating(self, text: str, timestamp: datetime) -> Optional[EatingEvent]:
+        """Parse eating/meal event from text."""
+        # Extract meal items from "Meal items: ..." pattern
+        items_match = re.search(r"Meal items?:\s*([^\n]+)", text, re.IGNORECASE)
+        meal_items = items_match.group(1).strip() if items_match else "Unknown"
+
+        # Try to determine meal type from context or time
+        meal_type = None
+        hour = timestamp.hour
+        if hour < 10:
+            meal_type = "Breakfast"
+        elif hour < 14:
+            meal_type = "Lunch"
+        elif hour < 17:
+            meal_type = "Snack"
+        else:
+            meal_type = "Dinner"
+
+        return EatingEvent(time=timestamp, meal_items=meal_items, meal_type=meal_type)
 
     def _extract_timestamp(self, text: str, date: datetime) -> datetime:
         """Extract timestamp from feed item text."""
@@ -661,7 +698,7 @@ class PlaygroundScraper:
 
     def _parse_napping(self, text: str, date: datetime) -> Optional[NappingEvent]:
         """Parse napping event from text."""
-        # Look for "From Jan 29, 2026 1:18 PM until 1:38 PM" pattern
+        # Look for "From Jan 29, 2026 1:18 PM until 1:38 PM" pattern (with end time)
         from_until_match = re.search(
             r"From\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),?\s+(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)\s+until\s+(\d{1,2}):(\d{2})\s*(AM|PM)",
             text,
@@ -679,7 +716,6 @@ class PlaygroundScraper:
             end_minute = int(from_until_match.group(8))
             end_ampm = from_until_match.group(9).upper()
 
-            # Convert month name to number
             months = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
                       "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
             month = months.get(month_str.lower(), 1)
@@ -697,7 +733,6 @@ class PlaygroundScraper:
             start_time = datetime(year, month, day, start_hour, start_minute, 0)
             end_time = datetime(year, month, day, end_hour, end_minute, 0)
 
-            # Extract position (Back, Side, etc.)
             position = None
             for pos in ["back", "side", "stomach", "tummy"]:
                 if pos in text.lower():
@@ -705,6 +740,41 @@ class PlaygroundScraper:
                     break
 
             return NappingEvent(start_time=start_time, end_time=end_time, position=position)
+
+        # Also handle "Occurred at" format (nap without end time - just start time logged)
+        # Example: "Occurred at Jan 29, 2026 1:10 PM · Back"
+        occurred_match = re.search(
+            r"Occurred at\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),?\s+(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)",
+            text,
+            re.IGNORECASE
+        )
+
+        if occurred_match:
+            month_str = occurred_match.group(1)
+            day = int(occurred_match.group(2))
+            year = int(occurred_match.group(3))
+            start_hour = int(occurred_match.group(4))
+            start_minute = int(occurred_match.group(5))
+            start_ampm = occurred_match.group(6).upper()
+
+            months = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+                      "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+            month = months.get(month_str.lower(), 1)
+
+            if start_ampm == "PM" and start_hour != 12:
+                start_hour += 12
+            elif start_ampm == "AM" and start_hour == 12:
+                start_hour = 0
+
+            start_time = datetime(year, month, day, start_hour, start_minute, 0)
+
+            position = None
+            for pos in ["back", "side", "stomach", "tummy"]:
+                if pos in text.lower():
+                    position = pos.title()
+                    break
+
+            return NappingEvent(start_time=start_time, end_time=None, position=position)
 
         return None
 
