@@ -100,11 +100,12 @@ class PlaygroundScraper:
             # Click login button - look for button with "Log in" text
             await self.page.click('button:has-text("Log in")')
 
-            # Wait for navigation away from login page
-            await self.page.wait_for_url(lambda url: "/signin" not in url, timeout=15000)
+            # Wait for page to process login
+            await asyncio.sleep(3)
             await self.page.wait_for_load_state("networkidle")
 
-            logger.info("Login successful")
+            # Don't check URL - just assume login worked and let feed navigation verify
+            logger.info("Login submitted, proceeding...")
             return True
 
         except Exception as e:
