@@ -254,13 +254,37 @@ class PlaygroundScraper:
         """Scrape the feed for a single child."""
         child = ChildSummary(name=child_name)
         today_str = date.strftime("%b %d, %Y")
+        today_short = date.strftime("%b %d")
 
-        # Get all feed items
-        feed_items = await self.page.query_selector_all('[class*="card"], [class*="feed-item"], [class*="activity"], [class*="post"]')
+        # Take a debug screenshot of the feed
+        await self.screenshot("feed_debug.png")
 
-        if not feed_items:
-            # Try a more generic approach - look for repeated list items
-            feed_items = await self.page.query_selector_all('main > div > div')
+        # Get all feed items - look for cards that contain event data
+        # The feed uses div elements that contain the event type headers
+        feed_items = await self.page.query_selector_all('[class*="MuiCard"], [class*="MuiPaper"], [class*="card"]')
+
+        if len(feed_items) < 3:
+            # Try finding items by looking for elements that contain "Occurred at" or "From"
+            # These are the time markers in each feed item
+            feed_items = await self.page.query_selector_all('div:has-text("Occurred at"), div:has-text("From Jan"), div:has-text("From Feb")')
+
+        if len(feed_items) < 3:
+            # Try getting the main feed container and its direct children
+            main_content = await self.page.query_selector('main')
+            if main_content:
+                feed_items = await main_content.query_selector_all(':scope > div > div > div')
+
+        if len(feed_items) < 3:
+            # Last resort - get all text content from the page and parse it
+            logger.info("Using full page content parsing...")
+            page_content = await self.page.content()
+            full_text = await self.page.inner_text('body')
+
+            # Log a portion of the page content for debugging
+            logger.debug(f"Page content sample: {full_text[:1000]}")
+
+            # Parse the full text content directly
+            return self._parse_full_feed_text(full_text, child, date)
 
         logger.info(f"Found {len(feed_items)} potential feed items")
 
@@ -270,19 +294,92 @@ class PlaygroundScraper:
                 if not text.strip():
                     continue
 
-                # Check if this is today's event
-                if date.strftime("%b %d") not in text and date.strftime("%B %d") not in text:
-                    # Try alternate date format
-                    if date.strftime("%-m/%-d") not in text and date.strftime("%m/%d") not in text:
-                        continue
+                # Log the item text for debugging (truncated)
+                if len(text) > 50:
+                    logger.debug(f"Feed item text: {text[:100]}...")
 
-                await self._parse_feed_item(text, child, date)
+                # Check if this is today's event by looking for date pattern
+                if today_short in text or today_str in text:
+                    await self._parse_feed_item(text, child, date)
 
             except Exception as e:
                 logger.debug(f"Error parsing feed item: {e}")
                 continue
 
         return child
+
+    def _parse_full_feed_text(self, full_text: str, child: ChildSummary, date: datetime) -> ChildSummary:
+        """Parse events from full page text when individual items can't be found."""
+        today_str = date.strftime("%b %d, %Y")
+
+        # Split by common patterns that separate feed items
+        # Look for lines containing "Recorded by" which starts each item
+        lines = full_text.split('\n')
+        current_item = []
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            # If we hit a new event header (Sign Out, Diaper, Bottle, etc.)
+            if any(header in line for header in ['Sign Out', 'Sign In', 'Diaper', 'Bottle', 'Fluids', 'Napping']):
+                # Process previous item if it exists and is from today
+                if current_item:
+                    item_text = '\n'.join(current_item)
+                    if today_str in item_text or date.strftime("%b %d") in item_text:
+                        self._parse_feed_item_sync(item_text, child, date)
+                current_item = [line]
+            else:
+                current_item.append(line)
+
+        # Don't forget the last item
+        if current_item:
+            item_text = '\n'.join(current_item)
+            if today_str in item_text or date.strftime("%b %d") in item_text:
+                self._parse_feed_item_sync(item_text, child, date)
+
+        return child
+
+    def _parse_feed_item_sync(self, text: str, child: ChildSummary, date: datetime) -> None:
+        """Synchronous version of feed item parsing."""
+        text_lower = text.lower()
+
+        # Extract timestamp
+        timestamp = self._extract_timestamp(text, date)
+
+        # Check sign out before sign in (sign out contains "sign in" as substring)
+        if "sign out" in text_lower:
+            child.sign_out = timestamp
+            logger.info(f"Parsed sign out: {timestamp}")
+
+        elif "sign in" in text_lower:
+            child.sign_in = timestamp
+            logger.info(f"Parsed sign in: {timestamp}")
+
+        elif "diaper" in text_lower:
+            diaper = self._parse_diaper(text, timestamp)
+            if diaper:
+                child.diapers.append(diaper)
+                logger.info(f"Parsed diaper: {diaper.diaper_type} at {timestamp}")
+
+        elif "bottle" in text_lower:
+            bottle = self._parse_bottle(text, timestamp)
+            if bottle:
+                child.bottles.append(bottle)
+                logger.info(f"Parsed bottle: {bottle.ounces_consumed}oz at {timestamp}")
+
+        elif "fluids" in text_lower:
+            fluids = self._parse_fluids(text, timestamp)
+            if fluids:
+                child.fluids.append(fluids)
+                logger.info(f"Parsed fluids: {fluids.ounces}oz at {timestamp}")
+
+        elif "napping" in text_lower or "nap" in text_lower:
+            nap = self._parse_napping(text, date)
+            if nap:
+                child.naps.append(nap)
+                logger.info(f"Parsed nap: {nap.start_time} - {nap.end_time}")
 
     async def _parse_feed_item(self, text: str, child: ChildSummary, date: datetime) -> None:
         """Parse a single feed item and add to child summary."""
@@ -291,31 +388,38 @@ class PlaygroundScraper:
         # Extract timestamp from text
         timestamp = self._extract_timestamp(text, date)
 
-        if "sign in" in text_lower:
-            child.sign_in = timestamp
-
-        elif "sign out" in text_lower:
+        # Check sign out before sign in (sign out contains "sign in" as substring)
+        if "sign out" in text_lower:
             child.sign_out = timestamp
+            logger.info(f"Parsed sign out: {timestamp}")
+
+        elif "sign in" in text_lower:
+            child.sign_in = timestamp
+            logger.info(f"Parsed sign in: {timestamp}")
 
         elif "diaper" in text_lower:
             diaper = self._parse_diaper(text, timestamp)
             if diaper:
                 child.diapers.append(diaper)
+                logger.info(f"Parsed diaper: {diaper.diaper_type} at {timestamp}")
 
         elif "bottle" in text_lower:
             bottle = self._parse_bottle(text, timestamp)
             if bottle:
                 child.bottles.append(bottle)
+                logger.info(f"Parsed bottle: {bottle.ounces_consumed}oz {bottle.milk_type} at {timestamp}")
 
         elif "fluids" in text_lower:
             fluids = self._parse_fluids(text, timestamp)
             if fluids:
                 child.fluids.append(fluids)
+                logger.info(f"Parsed fluids: {fluids.ounces}oz at {timestamp}")
 
         elif "nap" in text_lower:
             nap = self._parse_napping(text, date)
             if nap:
                 child.naps.append(nap)
+                logger.info(f"Parsed nap: {nap.start_time} - {nap.end_time}")
 
     def _extract_timestamp(self, text: str, date: datetime) -> datetime:
         """Extract timestamp from feed item text."""
@@ -385,12 +489,16 @@ class PlaygroundScraper:
         elif "formula" in text.lower():
             milk_type = "Formula"
 
-        # Extract ounces offered
-        offered_match = re.search(r"(?:offered|ounces offered)[:\s]*(\d+\.?\d*)", text, re.IGNORECASE)
+        # Extract ounces offered - handle multi-line format:
+        # "Ounces Offered"
+        # "3.5"
+        offered_match = re.search(r"(?:ounces\s*offered|offered)[:\s\n]*(\d+\.?\d*)", text, re.IGNORECASE)
         ounces_offered = float(offered_match.group(1)) if offered_match else 0.0
 
-        # Extract ounces consumed
-        consumed_match = re.search(r"(?:consumed|ounces consumed)[:\s]*(\d+\.?\d*)", text, re.IGNORECASE)
+        # Extract ounces consumed - handle multi-line format:
+        # "Ounces Consumed"
+        # "3.6"
+        consumed_match = re.search(r"(?:ounces\s*consumed|consumed)[:\s\n]*(\d+\.?\d*)", text, re.IGNORECASE)
         ounces_consumed = float(consumed_match.group(1)) if consumed_match else 0.0
 
         # If no specific matches, try to find any number followed by "oz"
@@ -409,8 +517,8 @@ class PlaygroundScraper:
 
     def _parse_fluids(self, text: str, timestamp: datetime) -> Optional[FluidsEvent]:
         """Parse fluids event from text."""
-        # Extract ounces
-        oz_match = re.search(r"(\d+\.?\d*)\s*(?:oz|ounces)", text, re.IGNORECASE)
+        # Extract ounces - format like "3.5 oz." or "3.5oz"
+        oz_match = re.search(r"(\d+\.?\d*)\s*oz", text, re.IGNORECASE)
         ounces = float(oz_match.group(1)) if oz_match else 0.0
 
         # Extract meal type
