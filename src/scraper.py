@@ -176,10 +176,9 @@ class PlaygroundScraper:
                         logger.info(f"Navigating to: {feed_url}")
                         await self.page.goto(feed_url)
 
-        await self.page.wait_for_load_state("networkidle")
-
-        # Wait for feed content to load
-        await asyncio.sleep(2)  # Give React time to render
+        # Wait for page to load (don't use networkidle - feed may have continuous polling)
+        await self.page.wait_for_load_state("domcontentloaded")
+        await asyncio.sleep(5)  # Give React time to render feed content
 
         # Get list of children (tabs)
         children = await self._get_child_tabs()
