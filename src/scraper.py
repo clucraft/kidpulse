@@ -90,15 +90,15 @@ class PlaygroundScraper:
 
         logger.info("Logging in...")
         try:
-            # Wait for login form
-            await self.page.wait_for_selector('input[type="email"]', timeout=10000)
+            # Wait for login form - use placeholder text as selector
+            await self.page.wait_for_selector('input[placeholder*="Email" i]', timeout=10000)
 
-            # Fill credentials
-            await self.page.fill('input[type="email"]', self.config.email)
-            await self.page.fill('input[type="password"]', self.config.password)
+            # Fill credentials using placeholder selectors
+            await self.page.fill('input[placeholder*="Email" i]', self.config.email)
+            await self.page.fill('input[placeholder*="Password" i]', self.config.password)
 
-            # Click login button
-            await self.page.click('button[type="submit"]')
+            # Click login button - look for button with "Log in" text
+            await self.page.click('button:has-text("Log in")')
 
             # Wait for navigation away from login page
             await self.page.wait_for_url(lambda url: "/signin" not in url, timeout=15000)
