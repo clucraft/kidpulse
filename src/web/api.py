@@ -8,6 +8,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..config import Config
@@ -22,6 +23,11 @@ app = FastAPI(
     description="Daily event scraper for Playground childcare app",
     version="1.0.0",
 )
+
+# Mount static files
+static_dir = Path(__file__).parent / "static"
+static_dir.mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>KidPulse Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
@@ -36,7 +37,8 @@
             flex-wrap: wrap;
             gap: 15px;
         }
-        h1 { color: var(--accent); font-size: 1.8em; }
+        h1 { color: var(--accent); font-size: 1.8em; display: flex; align-items: center; gap: 10px; }
+        .logo { width: 36px; height: 36px; }
         h2 { color: var(--text); font-size: 1.3em; margin-bottom: 15px; }
         h3 { color: var(--text-muted); font-size: 1em; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
         .status-bar {
@@ -226,7 +228,7 @@
 <body>
     <header>
         <div>
-            <h1>KidPulse</h1>
+            <h1><img src="/static/favicon.svg" alt="KidPulse" class="logo">KidPulse</h1>
             <div class="status-bar">
                 {% if last_scrape %}
                 <div class="status-item">

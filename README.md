@@ -1,6 +1,12 @@
-# KidPulse
+<p align="center">
+  <img src="src/web/static/icon.svg" alt="KidPulse Logo" width="120" height="120">
+</p>
 
-Daily event scraper and notification system for Playground (tryplayground.com) childcare app.
+<h1 align="center">KidPulse</h1>
+
+<p align="center">
+  Daily event scraper and notification system for Playground (tryplayground.com) childcare app.
+</p>
 
 ## Features
 
