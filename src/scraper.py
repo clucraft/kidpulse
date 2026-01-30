@@ -82,35 +82,63 @@ class PlaygroundScraper:
         logger.info("Navigating to Playground...")
         await self.page.goto(f"{self.config.base_url}/signin")
         await self.page.wait_for_load_state("networkidle")
-        await asyncio.sleep(2)  # Wait for React to render
+        await asyncio.sleep(3)  # Wait for React to render and any redirects
+
+        # Check current URL - if not on signin page, we're logged in
+        current_url = self.page.url
+        logger.info(f"Current URL after signin navigation: {current_url}")
+
+        if "/signin" not in current_url:
+            logger.info("Redirected away from signin - already logged in")
+            return True
 
         # Check if login form exists - if not, we're already logged in
         email_input = await self.page.query_selector('input[placeholder*="Email" i]')
 
         if not email_input:
-            logger.info("No login form found - already logged in")
-            await self.screenshot("after_signin_check.png")
+            logger.info("No login form found - assuming logged in")
+            await self.screenshot("no_form_found.png")
             return True
 
         logger.info("Login form found, filling credentials...")
         try:
             # Fill credentials
-            await self.page.fill('input[placeholder*="Email" i]', self.config.email)
-            await self.page.fill('input[placeholder*="Password" i]', self.config.password)
+            await email_input.fill(self.config.email)
+
+            password_input = await self.page.query_selector('input[placeholder*="Password" i]')
+            if password_input:
+                await password_input.fill(self.config.password)
 
             # Click login button
-            await self.page.click('button:has-text("Log in")')
+            login_btn = await self.page.query_selector('button:has-text("Log in")')
+            if login_btn:
+                await login_btn.click()
 
             # Wait for page to process login
             await asyncio.sleep(5)
-            await self.page.wait_for_load_state("networkidle")
+            await self.page.wait_for_load_state("networkidle", timeout=10000)
 
             logger.info("Login submitted, proceeding...")
             return True
 
         except Exception as e:
-            logger.error(f"Login failed: {e}")
-            await self.screenshot("login_error.png")
+            # Even if there was an error, check if we ended up logged in
+            logger.warning(f"Login operation had issue: {e}")
+            await self.screenshot("login_issue.png")
+
+            # Check if we're now on a non-signin page (meaning login worked)
+            current_url = self.page.url
+            if "/signin" not in current_url:
+                logger.info(f"Despite error, now at {current_url} - login likely succeeded")
+                return True
+
+            # Check if login form is gone
+            email_input = await self.page.query_selector('input[placeholder*="Email" i]')
+            if not email_input:
+                logger.info("Login form gone - assuming login succeeded")
+                return True
+
+            logger.error("Login truly failed")
             return False
 
     async def get_daily_events(self, date: Optional[datetime] = None) -> DailySummary:
