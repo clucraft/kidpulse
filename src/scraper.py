@@ -9,7 +9,7 @@ from typing import Optional
 
 from playwright.async_api import async_playwright, Browser, Page, BrowserContext
 
-from .config import PlaygroundConfig
+from .config import PlaygroundConfig, AIConfig
 from .models import (
     DailySummary,
     ChildSummary,
@@ -20,6 +20,7 @@ from .models import (
     EventType,
     Event,
 )
+from .ai_parser import AIParser
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,10 @@ SESSION_DIR = Path("session_data")
 class PlaygroundScraper:
     """Scraper for Playground childcare app."""
 
-    def __init__(self, config: PlaygroundConfig):
+    def __init__(self, config: PlaygroundConfig, ai_config: Optional[AIConfig] = None):
         self.config = config
+        self.ai_config = ai_config
+        self.ai_parser = AIParser(ai_config) if ai_config else None
         self.browser: Optional[Browser] = None
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
@@ -259,31 +262,39 @@ class PlaygroundScraper:
         # Take a debug screenshot of the feed
         await self.screenshot("feed_debug.png")
 
+        # Get the full page text for AI parsing or fallback
+        full_text = await self.page.inner_text('body')
+
+        # Try AI parsing first if enabled
+        if self.ai_parser and self.ai_config and self.ai_config.enabled:
+            logger.info("Attempting AI-powered feed parsing...")
+            try:
+                ai_result = await self.ai_parser.parse_feed(full_text, child_name, date)
+                if ai_result and (ai_result.bottles or ai_result.diapers or ai_result.naps or ai_result.fluids or ai_result.sign_in or ai_result.sign_out):
+                    logger.info(f"AI parsing successful: {len(ai_result.bottles)} bottles, {len(ai_result.diapers)} diapers, {len(ai_result.naps)} naps")
+                    return ai_result
+                else:
+                    logger.warning("AI parsing returned no events, falling back to regex")
+            except Exception as e:
+                logger.warning(f"AI parsing failed: {e}, falling back to regex")
+
+        # Fallback to regex-based parsing
+        logger.info("Using regex-based feed parsing...")
+
         # Get all feed items - look for cards that contain event data
-        # The feed uses div elements that contain the event type headers
         feed_items = await self.page.query_selector_all('[class*="MuiCard"], [class*="MuiPaper"], [class*="card"]')
 
         if len(feed_items) < 3:
-            # Try finding items by looking for elements that contain "Occurred at" or "From"
-            # These are the time markers in each feed item
             feed_items = await self.page.query_selector_all('div:has-text("Occurred at"), div:has-text("From Jan"), div:has-text("From Feb")')
 
         if len(feed_items) < 3:
-            # Try getting the main feed container and its direct children
             main_content = await self.page.query_selector('main')
             if main_content:
                 feed_items = await main_content.query_selector_all(':scope > div > div > div')
 
         if len(feed_items) < 3:
-            # Last resort - get all text content from the page and parse it
             logger.info("Using full page content parsing...")
-            page_content = await self.page.content()
-            full_text = await self.page.inner_text('body')
-
-            # Log a portion of the page content for debugging
             logger.debug(f"Page content sample: {full_text[:1000]}")
-
-            # Parse the full text content directly
             return self._parse_full_feed_text(full_text, child, date)
 
         logger.info(f"Found {len(feed_items)} potential feed items")
@@ -294,11 +305,9 @@ class PlaygroundScraper:
                 if not text.strip():
                     continue
 
-                # Log the item text for debugging (truncated)
                 if len(text) > 50:
                     logger.debug(f"Feed item text: {text[:100]}...")
 
-                # Check if this is today's event by looking for date pattern
                 if today_short in text or today_str in text:
                     await self._parse_feed_item(text, child, date)
 

@@ -79,6 +79,39 @@ docker-compose up -d
 | `RUN_ON_STARTUP` | Run scrape immediately on start | `false` |
 | `DEBUG` | Enable debug logging | `false` |
 | `WEB_PORT` | Web UI/API port | `8080` |
+| `AI_ENABLED` | Use AI for parsing (more robust) | `false` |
+| `AI_PROVIDER` | AI provider: `ollama` or `openai` | `ollama` |
+| `OLLAMA_URL` | Ollama server URL | `http://host.docker.internal:11434` |
+| `OLLAMA_MODEL` | Ollama model to use | `qwen3:8b` |
+| `OPENAI_API_KEY` | OpenAI API key (if using OpenAI) | - |
+| `OPENAI_MODEL` | OpenAI model to use | `gpt-4o-mini` |
+
+## AI-Powered Parsing
+
+KidPulse supports using AI (LLM) to parse the feed instead of regex. This is more robust and handles UI changes automatically.
+
+### Using Ollama (Local, Free)
+
+1. Install [Ollama](https://ollama.ai)
+2. Pull a model: `ollama pull qwen3:8b`
+3. Enable in your `.env`:
+   ```env
+   AI_ENABLED=true
+   AI_PROVIDER=ollama
+   OLLAMA_URL=http://host.docker.internal:11434
+   OLLAMA_MODEL=qwen3:8b
+   ```
+
+### Using OpenAI
+
+1. Get an API key from [OpenAI](https://platform.openai.com)
+2. Enable in your `.env`:
+   ```env
+   AI_ENABLED=true
+   AI_PROVIDER=openai
+   OPENAI_API_KEY=sk-...
+   OPENAI_MODEL=gpt-4o-mini
+   ```
 
 ## Web Dashboard
 

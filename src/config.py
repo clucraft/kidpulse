@@ -43,11 +43,23 @@ class TelegramConfig:
 
 
 @dataclass
+class AIConfig:
+    """AI parsing configuration."""
+    enabled: bool
+    provider: str  # "ollama" or "openai"
+    ollama_url: str
+    ollama_model: str
+    openai_api_key: str
+    openai_model: str
+
+
+@dataclass
 class Config:
     """Main application configuration."""
     playground: PlaygroundConfig
     ntfy: NtfyConfig
     telegram: TelegramConfig
+    ai: AIConfig
     summary_time: str
     scrape_interval: int
     timezone: str
@@ -71,6 +83,14 @@ class Config:
                 enabled=get_bool("TELEGRAM_ENABLED"),
                 bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
                 chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
+            ),
+            ai=AIConfig(
+                enabled=get_bool("AI_ENABLED"),
+                provider=os.getenv("AI_PROVIDER", "ollama"),
+                ollama_url=os.getenv("OLLAMA_URL", "http://host.docker.internal:11434"),
+                ollama_model=os.getenv("OLLAMA_MODEL", "qwen3:8b"),
+                openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+                openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
             ),
             summary_time=os.getenv("SUMMARY_TIME", "17:00"),
             scrape_interval=int(os.getenv("SCRAPE_INTERVAL", "30")),

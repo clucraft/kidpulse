@@ -116,7 +116,7 @@ async def run_scrape(notify: bool = True) -> None:
     """Run the scraper (called as background task)."""
     async with _scrape_lock:
         try:
-            async with PlaygroundScraper(_config.playground) as scraper:
+            async with PlaygroundScraper(_config.playground, _config.ai) as scraper:
                 if not await scraper.login():
                     await storage.log_scrape(False, "Login failed")
                     logger.error("Scrape failed: login failed")
