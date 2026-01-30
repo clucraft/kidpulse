@@ -82,29 +82,29 @@ class PlaygroundScraper:
         logger.info("Navigating to Playground...")
         await self.page.goto(f"{self.config.base_url}/signin")
         await self.page.wait_for_load_state("networkidle")
+        await asyncio.sleep(2)  # Wait for React to render
 
-        # Check if already logged in (redirected away from login)
-        if "/signin" not in self.page.url:
-            logger.info("Already logged in")
+        # Check if login form exists - if not, we're already logged in
+        email_input = await self.page.query_selector('input[placeholder*="Email" i]')
+
+        if not email_input:
+            logger.info("No login form found - already logged in")
+            await self.screenshot("after_signin_check.png")
             return True
 
-        logger.info("Logging in...")
+        logger.info("Login form found, filling credentials...")
         try:
-            # Wait for login form - use placeholder text as selector
-            await self.page.wait_for_selector('input[placeholder*="Email" i]', timeout=10000)
-
-            # Fill credentials using placeholder selectors
+            # Fill credentials
             await self.page.fill('input[placeholder*="Email" i]', self.config.email)
             await self.page.fill('input[placeholder*="Password" i]', self.config.password)
 
-            # Click login button - look for button with "Log in" text
+            # Click login button
             await self.page.click('button:has-text("Log in")')
 
             # Wait for page to process login
-            await asyncio.sleep(3)
+            await asyncio.sleep(5)
             await self.page.wait_for_load_state("networkidle")
 
-            # Don't check URL - just assume login worked and let feed navigation verify
             logger.info("Login submitted, proceeding...")
             return True
 
