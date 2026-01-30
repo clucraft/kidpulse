@@ -414,23 +414,31 @@ class PlaygroundScraper:
         timestamp = self._extract_timestamp(text, date)
 
         # Check for Sign In/Out events - must match specific format "Sign Out ·" or "Sign In ·"
-        # This prevents false positives from "Sign Out" buttons or other UI elements
-        is_sign_out_event = re.search(r"Sign\s+Out\s*·", text, re.IGNORECASE)
-        is_sign_in_event = re.search(r"Sign\s+In\s*·", text, re.IGNORECASE)
+        # Extract timestamp from AFTER the Sign In/Out text to avoid grabbing wrong timestamp
+        sign_out_match = re.search(
+            r"Sign\s+Out\s*·[^\n]*\n[^\n]*\n[^\n]*Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
+            text,
+            re.IGNORECASE
+        )
+        sign_in_match = re.search(
+            r"Sign\s+In\s*·[^\n]*\n[^\n]*\n[^\n]*Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
+            text,
+            re.IGNORECASE
+        )
 
-        if is_sign_out_event:
-            # Debug: log the text that matched
-            logger.info(f"DEBUG sign out text: {repr(text[:300])}")
-            # Track all sign_out events (for multi-day feeds)
-            if timestamp not in child.sign_out_events:
-                child.sign_out_events.append(timestamp)
-                logger.info(f"Parsed sign out: {timestamp}")
+        if sign_out_match:
+            # Extract the timestamp specifically from the Sign Out event
+            sign_out_time = self._parse_timestamp_string(sign_out_match.group(1))
+            if sign_out_time and sign_out_time not in child.sign_out_events:
+                child.sign_out_events.append(sign_out_time)
+                logger.info(f"Parsed sign out: {sign_out_time}")
 
-        elif is_sign_in_event:
-            # Track all sign_in events (for multi-day feeds)
-            if timestamp not in child.sign_in_events:
-                child.sign_in_events.append(timestamp)
-                logger.info(f"Parsed sign in: {timestamp}")
+        elif sign_in_match:
+            # Extract the timestamp specifically from the Sign In event
+            sign_in_time = self._parse_timestamp_string(sign_in_match.group(1))
+            if sign_in_time and sign_in_time not in child.sign_in_events:
+                child.sign_in_events.append(sign_in_time)
+                logger.info(f"Parsed sign in: {sign_in_time}")
 
         elif "diaper" in text_lower:
             diaper = self._parse_diaper(text, timestamp)
@@ -510,23 +518,31 @@ class PlaygroundScraper:
         timestamp = self._extract_timestamp(text, date)
 
         # Check for Sign In/Out events - must match specific format "Sign Out ·" or "Sign In ·"
-        # This prevents false positives from "Sign Out" buttons or other UI elements
-        is_sign_out_event = re.search(r"Sign\s+Out\s*·", text, re.IGNORECASE)
-        is_sign_in_event = re.search(r"Sign\s+In\s*·", text, re.IGNORECASE)
+        # Extract timestamp from AFTER the Sign In/Out text to avoid grabbing wrong timestamp
+        sign_out_match = re.search(
+            r"Sign\s+Out\s*·[^\n]*\n[^\n]*\n[^\n]*Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
+            text,
+            re.IGNORECASE
+        )
+        sign_in_match = re.search(
+            r"Sign\s+In\s*·[^\n]*\n[^\n]*\n[^\n]*Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
+            text,
+            re.IGNORECASE
+        )
 
-        if is_sign_out_event:
-            # Debug: log the text that matched
-            logger.info(f"DEBUG sign out text: {repr(text[:300])}")
-            # Track all sign_out events (for multi-day feeds)
-            if timestamp not in child.sign_out_events:
-                child.sign_out_events.append(timestamp)
-                logger.info(f"Parsed sign out: {timestamp}")
+        if sign_out_match:
+            # Extract the timestamp specifically from the Sign Out event
+            sign_out_time = self._parse_timestamp_string(sign_out_match.group(1))
+            if sign_out_time and sign_out_time not in child.sign_out_events:
+                child.sign_out_events.append(sign_out_time)
+                logger.info(f"Parsed sign out: {sign_out_time}")
 
-        elif is_sign_in_event:
-            # Track all sign_in events (for multi-day feeds)
-            if timestamp not in child.sign_in_events:
-                child.sign_in_events.append(timestamp)
-                logger.info(f"Parsed sign in: {timestamp}")
+        elif sign_in_match:
+            # Extract the timestamp specifically from the Sign In event
+            sign_in_time = self._parse_timestamp_string(sign_in_match.group(1))
+            if sign_in_time and sign_in_time not in child.sign_in_events:
+                child.sign_in_events.append(sign_in_time)
+                logger.info(f"Parsed sign in: {sign_in_time}")
 
         elif "diaper" in text_lower:
             diaper = self._parse_diaper(text, timestamp)
@@ -577,6 +593,37 @@ class PlaygroundScraper:
             meal_type = "Dinner"
 
         return EatingEvent(time=timestamp, meal_items=meal_items, meal_type=meal_type)
+
+    def _parse_timestamp_string(self, ts_str: str) -> Optional[datetime]:
+        """Parse a timestamp string like 'Jan 30, 2026 7:24 AM' into a datetime."""
+        try:
+            match = re.match(
+                r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),?\s+(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)",
+                ts_str.strip(),
+                re.IGNORECASE
+            )
+            if not match:
+                return None
+
+            month_str = match.group(1)
+            day = int(match.group(2))
+            year = int(match.group(3))
+            hour = int(match.group(4))
+            minute = int(match.group(5))
+            ampm = match.group(6).upper()
+
+            months = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+                      "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+            month = months.get(month_str.lower(), 1)
+
+            if ampm == "PM" and hour != 12:
+                hour += 12
+            elif ampm == "AM" and hour == 12:
+                hour = 0
+
+            return datetime(year, month, day, hour, minute, 0)
+        except Exception:
+            return None
 
     def _extract_timestamp(self, text: str, date: datetime) -> datetime:
         """Extract timestamp from feed item text."""
