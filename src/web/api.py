@@ -122,7 +122,7 @@ async def run_scrape(notify: bool = True) -> None:
                     logger.error("Scrape failed: login failed")
                     return
 
-                summary = await scraper.get_daily_events()
+                summary = await scraper.get_daily_events(timezone=_config.timezone)
 
                 # Count total events
                 total_events = sum(

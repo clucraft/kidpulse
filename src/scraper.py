@@ -2,10 +2,12 @@
 
 import asyncio
 import logging
+import os
 import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from playwright.async_api import async_playwright, Browser, Page, BrowserContext
 
@@ -144,13 +146,16 @@ class PlaygroundScraper:
             logger.error("Login truly failed")
             return False
 
-    async def get_daily_events(self, date: Optional[datetime] = None) -> DailySummary:
+    async def get_daily_events(self, date: Optional[datetime] = None, timezone: str = "America/New_York") -> DailySummary:
         """Scrape events for all children for a given day (defaults to today)."""
         if not self.page:
             raise RuntimeError("Browser not started")
 
         if date is None:
-            date = datetime.now()
+            # Use configured timezone for "today"
+            tz = ZoneInfo(timezone)
+            date = datetime.now(tz)
+            logger.info(f"Using timezone {timezone}, current date: {date.strftime('%Y-%m-%d %H:%M')}")
 
         summary = DailySummary(date=date)
 
@@ -201,6 +206,27 @@ class PlaygroundScraper:
 
             child_summary = await self._scrape_child_feed(child_name, date)
             summary.children[child_name] = child_summary
+
+        # Update summary date based on actual event dates
+        event_dates = []
+        for child in summary.children.values():
+            if child.sign_in:
+                event_dates.append(child.sign_in.date())
+            if child.sign_out:
+                event_dates.append(child.sign_out.date())
+            for b in child.bottles:
+                event_dates.append(b.time.date())
+            for d in child.diapers:
+                event_dates.append(d.time.date())
+            for n in child.naps:
+                event_dates.append(n.start_time.date())
+
+        if event_dates:
+            # Use the most common date from events
+            from collections import Counter
+            most_common_date = Counter(event_dates).most_common(1)[0][0]
+            summary.date = datetime.combine(most_common_date, datetime.min.time())
+            logger.info(f"Summary date set to {most_common_date} based on event dates")
 
         return summary
 
