@@ -123,9 +123,30 @@ class PlaygroundScraper:
         summary = DailySummary(date=date)
 
         # Navigate to the feed page
-        feed_url = f"{self.config.base_url}/app/{self.config.organization}/parent/feed"
-        logger.info(f"Navigating to feed: {feed_url}")
-        await self.page.goto(feed_url)
+        if self.config.organization:
+            feed_url = f"{self.config.base_url}/app/{self.config.organization}/parent/feed"
+            logger.info(f"Navigating to feed: {feed_url}")
+            await self.page.goto(feed_url)
+        else:
+            # Try to find and click Feed link, or navigate to current URL's feed
+            logger.info("Looking for feed page...")
+            current_url = self.page.url
+
+            # If already on a feed page, stay there
+            if "/feed" in current_url:
+                logger.info(f"Already on feed: {current_url}")
+            else:
+                # Try clicking Feed in navigation
+                try:
+                    await self.page.click('text="Feed"', timeout=5000)
+                except:
+                    # Try navigating to /feed from current app URL
+                    if "/app/" in current_url:
+                        base_app_url = current_url.split("/parent")[0] if "/parent" in current_url else current_url.rstrip("/")
+                        feed_url = f"{base_app_url}/parent/feed"
+                        logger.info(f"Navigating to: {feed_url}")
+                        await self.page.goto(feed_url)
+
         await self.page.wait_for_load_state("networkidle")
 
         # Wait for feed content to load

@@ -86,8 +86,6 @@ class Config:
             errors.append("PLAYGROUND_EMAIL is required")
         if not self.playground.password:
             errors.append("PLAYGROUND_PASSWORD is required")
-        if not self.playground.organization:
-            errors.append("PLAYGROUND_ORGANIZATION is required")
 
         if self.ntfy.enabled and not self.ntfy.topic:
             errors.append("NTFY_TOPIC is required when NTFY is enabled")
