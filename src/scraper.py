@@ -413,14 +413,18 @@ class PlaygroundScraper:
         # Extract timestamp
         timestamp = self._extract_timestamp(text, date)
 
-        # Check sign out before sign in (sign out contains "sign in" as substring)
-        if "sign out" in text_lower:
+        # Check for Sign In/Out events - must match specific format "Sign Out ·" or "Sign In ·"
+        # This prevents false positives from "Sign Out" buttons or other UI elements
+        is_sign_out_event = re.search(r"Sign\s+Out\s*·", text, re.IGNORECASE)
+        is_sign_in_event = re.search(r"Sign\s+In\s*·", text, re.IGNORECASE)
+
+        if is_sign_out_event:
             # Track all sign_out events (for multi-day feeds)
             if timestamp not in child.sign_out_events:
                 child.sign_out_events.append(timestamp)
                 logger.info(f"Parsed sign out: {timestamp}")
 
-        elif "sign in" in text_lower:
+        elif is_sign_in_event:
             # Track all sign_in events (for multi-day feeds)
             if timestamp not in child.sign_in_events:
                 child.sign_in_events.append(timestamp)
@@ -503,14 +507,18 @@ class PlaygroundScraper:
         # Extract timestamp from text
         timestamp = self._extract_timestamp(text, date)
 
-        # Check sign out before sign in (sign out contains "sign in" as substring)
-        if "sign out" in text_lower:
+        # Check for Sign In/Out events - must match specific format "Sign Out ·" or "Sign In ·"
+        # This prevents false positives from "Sign Out" buttons or other UI elements
+        is_sign_out_event = re.search(r"Sign\s+Out\s*·", text, re.IGNORECASE)
+        is_sign_in_event = re.search(r"Sign\s+In\s*·", text, re.IGNORECASE)
+
+        if is_sign_out_event:
             # Track all sign_out events (for multi-day feeds)
             if timestamp not in child.sign_out_events:
                 child.sign_out_events.append(timestamp)
                 logger.info(f"Parsed sign out: {timestamp}")
 
-        elif "sign in" in text_lower:
+        elif is_sign_in_event:
             # Track all sign_in events (for multi-day feeds)
             if timestamp not in child.sign_in_events:
                 child.sign_in_events.append(timestamp)
