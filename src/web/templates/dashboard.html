@@ -283,7 +283,7 @@
                         <span class="event-time">{{ m.time[11:16] }}</span>
                         <span class="event-detail">
                             {% if m.type %}<strong>{{ m.type }}:</strong>{% endif %}
-                            {{ m.items[:60] }}{% if m.items|length > 60 %}...{% endif %}
+                            {{ m['items'][:60] }}{% if m['items']|length > 60 %}...{% endif %}
                         </span>
                     </li>
                     {% endfor %}
