@@ -413,17 +413,16 @@ class PlaygroundScraper:
         # Extract timestamp
         timestamp = self._extract_timestamp(text, date)
 
-        # Check for Sign In/Out events - must match specific format "Sign Out ·" or "Sign In ·"
-        # Extract timestamp from AFTER the Sign In/Out text to avoid grabbing wrong timestamp
-        # The pattern is: "Sign Out · Name" ... "Occurred at [TIMESTAMP]"
-        # Use [\s\S] to match across newlines (handles \n\n double newlines)
+        # Check for Sign In/Out events - must match the actual event card structure:
+        # "Sign Out · Name" -> "Recorded by ..." -> "Occurred at [TIMESTAMP]"
+        # Requiring "Recorded by" prevents matching nav text + unrelated event timestamps
         sign_out_match = re.search(
-            r"Sign\s+Out\s*·[\s\S]*?Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
+            r"Sign\s+Out\s*·[\s\S]{1,150}?Recorded by[\s\S]{1,100}?Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
             text,
             re.IGNORECASE
         )
         sign_in_match = re.search(
-            r"Sign\s+In\s*·[\s\S]*?Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
+            r"Sign\s+In\s*·[\s\S]{1,150}?Recorded by[\s\S]{1,100}?Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
             text,
             re.IGNORECASE
         )
@@ -519,17 +518,16 @@ class PlaygroundScraper:
         # Extract timestamp from text
         timestamp = self._extract_timestamp(text, date)
 
-        # Check for Sign In/Out events - must match specific format "Sign Out ·" or "Sign In ·"
-        # Extract timestamp from AFTER the Sign In/Out text to avoid grabbing wrong timestamp
-        # The pattern is: "Sign Out · Name" ... "Occurred at [TIMESTAMP]"
-        # Use [\s\S] to match across newlines (handles \n\n double newlines)
+        # Check for Sign In/Out events - must match the actual event card structure:
+        # "Sign Out · Name" -> "Recorded by ..." -> "Occurred at [TIMESTAMP]"
+        # Requiring "Recorded by" prevents matching nav text + unrelated event timestamps
         sign_out_match = re.search(
-            r"Sign\s+Out\s*·[\s\S]*?Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
+            r"Sign\s+Out\s*·[\s\S]{1,150}?Recorded by[\s\S]{1,100}?Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
             text,
             re.IGNORECASE
         )
         sign_in_match = re.search(
-            r"Sign\s+In\s*·[\s\S]*?Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
+            r"Sign\s+In\s*·[\s\S]{1,150}?Recorded by[\s\S]{1,100}?Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
             text,
             re.IGNORECASE
         )
