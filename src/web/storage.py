@@ -81,23 +81,19 @@ async def split_and_save_by_date(summary: DailySummary) -> dict[str, DailySummar
     events_by_date: dict[str, dict[str, ChildSummary]] = defaultdict(dict)
 
     for child_name, child in summary.children.items():
-        # Create a mapping of date -> events for this child
-        child_events_by_date: dict[str, ChildSummary] = defaultdict(
-            lambda name=child_name: ChildSummary(name=name)
-        )
-
-        # Process sign in/out
-        if child.sign_in:
-            date_str = child.sign_in.date().isoformat()
+        # Process ALL sign_in events (from multi-day feeds)
+        for sign_in_time in child.sign_in_events:
+            date_str = sign_in_time.date().isoformat()
             if child_name not in events_by_date[date_str]:
                 events_by_date[date_str][child_name] = ChildSummary(name=child_name)
-            events_by_date[date_str][child_name].sign_in = child.sign_in
+            events_by_date[date_str][child_name].sign_in = sign_in_time
 
-        if child.sign_out:
-            date_str = child.sign_out.date().isoformat()
+        # Process ALL sign_out events (from multi-day feeds)
+        for sign_out_time in child.sign_out_events:
+            date_str = sign_out_time.date().isoformat()
             if child_name not in events_by_date[date_str]:
                 events_by_date[date_str][child_name] = ChildSummary(name=child_name)
-            events_by_date[date_str][child_name].sign_out = child.sign_out
+            events_by_date[date_str][child_name].sign_out = sign_out_time
 
         # Process bottles
         for bottle in child.bottles:

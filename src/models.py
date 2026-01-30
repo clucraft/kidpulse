@@ -99,6 +99,9 @@ class ChildSummary:
     name: str
     sign_in: Optional[datetime] = None
     sign_out: Optional[datetime] = None
+    # Lists to track ALL sign events (for multi-day feeds)
+    sign_in_events: list[datetime] = field(default_factory=list)
+    sign_out_events: list[datetime] = field(default_factory=list)
     diapers: list[DiaperEvent] = field(default_factory=list)
     bottles: list[BottleEvent] = field(default_factory=list)
     fluids: list[FluidsEvent] = field(default_factory=list)

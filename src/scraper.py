@@ -415,12 +415,16 @@ class PlaygroundScraper:
 
         # Check sign out before sign in (sign out contains "sign in" as substring)
         if "sign out" in text_lower:
-            child.sign_out = timestamp
-            logger.info(f"Parsed sign out: {timestamp}")
+            # Track all sign_out events (for multi-day feeds)
+            if timestamp not in child.sign_out_events:
+                child.sign_out_events.append(timestamp)
+                logger.info(f"Parsed sign out: {timestamp}")
 
         elif "sign in" in text_lower:
-            child.sign_in = timestamp
-            logger.info(f"Parsed sign in: {timestamp}")
+            # Track all sign_in events (for multi-day feeds)
+            if timestamp not in child.sign_in_events:
+                child.sign_in_events.append(timestamp)
+                logger.info(f"Parsed sign in: {timestamp}")
 
         elif "diaper" in text_lower:
             diaper = self._parse_diaper(text, timestamp)
@@ -501,12 +505,16 @@ class PlaygroundScraper:
 
         # Check sign out before sign in (sign out contains "sign in" as substring)
         if "sign out" in text_lower:
-            child.sign_out = timestamp
-            logger.info(f"Parsed sign out: {timestamp}")
+            # Track all sign_out events (for multi-day feeds)
+            if timestamp not in child.sign_out_events:
+                child.sign_out_events.append(timestamp)
+                logger.info(f"Parsed sign out: {timestamp}")
 
         elif "sign in" in text_lower:
-            child.sign_in = timestamp
-            logger.info(f"Parsed sign in: {timestamp}")
+            # Track all sign_in events (for multi-day feeds)
+            if timestamp not in child.sign_in_events:
+                child.sign_in_events.append(timestamp)
+                logger.info(f"Parsed sign in: {timestamp}")
 
         elif "diaper" in text_lower:
             diaper = self._parse_diaper(text, timestamp)
