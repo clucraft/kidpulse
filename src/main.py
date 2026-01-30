@@ -47,11 +47,11 @@ async def run_scheduled_scrape(config: Config, notify: bool = True) -> None:
 async def scheduler_loop(config: Config) -> None:
     """Run the scheduler loop."""
     global shutdown_requested
-    from zoneinfo import ZoneInfo
+    import pytz
 
-    # Get configured timezone
+    # Get configured timezone (schedule library needs pytz or string)
     try:
-        tz = ZoneInfo(config.timezone)
+        tz = pytz.timezone(config.timezone)
     except Exception:
         tz = None
         logger.warning(f"Invalid timezone '{config.timezone}', using system time")
