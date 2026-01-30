@@ -77,12 +77,26 @@
             margin-bottom: 20px;
             border: 1px solid var(--border);
         }
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 20px;
+        .child-selector {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
         }
-        .child-card { background: var(--card-bg); border-radius: 12px; padding: 20px; border: 1px solid var(--border); }
+        .child-selector select {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 10px 15px;
+            border-radius: 6px;
+            font-size: 1em;
+            cursor: pointer;
+            min-width: 200px;
+        }
+        .child-selector select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
         .child-name { font-size: 1.4em; margin-bottom: 15px; color: var(--accent); }
         .attendance {
             display: flex;
@@ -91,6 +105,11 @@
             border-bottom: 1px solid var(--border);
             margin-bottom: 15px;
             font-size: 0.9em;
+        }
+        .data-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
         }
         .section { margin-bottom: 20px; }
         .section-header {
@@ -119,13 +138,21 @@
             color: var(--text-muted);
         }
         .no-data p { margin-bottom: 20px; }
+        .nav-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
         .date-nav {
             display: flex;
             gap: 10px;
             align-items: center;
             flex-wrap: wrap;
         }
-        .date-nav button {
+        .date-nav button, .range-selector button {
             color: var(--text-muted);
             background: var(--card-bg);
             border: 1px solid var(--border);
@@ -135,7 +162,8 @@
             cursor: pointer;
             transition: all 0.2s;
         }
-        .date-nav button:hover, .date-nav button.active {
+        .date-nav button:hover, .date-nav button.active,
+        .range-selector button:hover, .range-selector button.active {
             color: var(--accent);
             background: var(--border);
             border-color: var(--accent);
@@ -162,6 +190,7 @@
             padding: 15px 25px;
             border-radius: 8px;
             display: none;
+            z-index: 1000;
         }
         .toast.show { display: block; }
         .toast.error { border-color: var(--error); }
@@ -178,6 +207,11 @@
         }
         .trends-header h2 {
             margin-bottom: 0;
+        }
+        .range-selector {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
         }
         .chart-grid {
             display: grid;
@@ -200,30 +234,21 @@
             position: relative;
             height: 200px;
         }
-        .child-tabs {
+        .no-chart-data {
             display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-        .child-tabs button {
-            background: var(--card-bg);
-            border: 1px solid var(--border);
+            align-items: center;
+            justify-content: center;
+            height: 200px;
             color: var(--text-muted);
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.9em;
-            transition: all 0.2s;
-        }
-        .child-tabs button:hover, .child-tabs button.active {
-            background: var(--border);
-            color: var(--accent);
-            border-color: var(--accent);
+            font-style: italic;
         }
         @media (max-width: 600px) {
             header { flex-direction: column; align-items: flex-start; }
             .status-bar { flex-direction: column; gap: 8px; }
             .chart-grid { grid-template-columns: 1fr; }
+            .nav-row { flex-direction: column; align-items: stretch; }
+            .child-selector { justify-content: center; }
+            .date-nav { justify-content: center; }
         }
     </style>
 </head>
@@ -257,8 +282,17 @@
     </header>
 
     <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-            <h2>{{ viewing_date if viewing_date else today }}</h2>
+        <div class="nav-row">
+            <div class="child-selector">
+                <label for="childSelect" style="color: var(--text-muted);">Viewing:</label>
+                <select id="childSelect" onchange="selectChild(this.value)">
+                    {% if summary and summary.children %}
+                        {% for child_name in summary.children.keys() %}
+                        <option value="{{ child_name }}">{{ child_name }}</option>
+                        {% endfor %}
+                    {% endif %}
+                </select>
+            </div>
             <div class="date-nav">
                 <button onclick="goToDate('{{ today }}')" {% if (viewing_date if viewing_date else today) == today %}class="active"{% endif %}>Today</button>
                 <button onclick="goToDate('{{ yesterday }}')" {% if viewing_date == yesterday %}class="active"{% endif %}>Yesterday</button>
@@ -268,114 +302,8 @@
     </div>
 
     {% if summary and summary.children %}
-    <div class="grid">
-        {% for child_name, child in summary.children.items() %}
-        <div class="child-card">
-            <div class="child-name">{{ child_name }}</div>
-
-            {% if child.sign_in or child.sign_out %}
-            <div class="attendance">
-                {% if child.sign_in %}<span>In: {{ child.sign_in[11:16] }}</span>{% endif %}
-                {% if child.sign_out %}<span>Out: {{ child.sign_out[11:16] }}</span>{% endif %}
-            </div>
-            {% endif %}
-
-            {% if child.bottles %}
-            <div class="section">
-                <div class="section-header">
-                    <span class="section-title">🍼 Bottles</span>
-                    <span class="section-total">{{ child.totals.bottle_oz }}oz total</span>
-                </div>
-                <ul class="event-list">
-                    {% for b in child.bottles %}
-                    <li class="event-item">
-                        <span class="event-time">{{ b.time[11:16] }}</span>
-                        <span class="event-detail">{{ b.consumed }}oz {{ b.milk_type }}</span>
-                    </li>
-                    {% endfor %}
-                </ul>
-            </div>
-            {% endif %}
-
-            {% if child.fluids %}
-            <div class="section">
-                <div class="section-header">
-                    <span class="section-title">🥤 Fluids</span>
-                    <span class="section-total">{{ child.totals.fluids_oz }}oz total</span>
-                </div>
-                <ul class="event-list">
-                    {% for f in child.fluids %}
-                    <li class="event-item">
-                        <span class="event-time">{{ f.time[11:16] }}</span>
-                        <span class="event-detail">{{ f.ounces }}oz{% if f.meal %} ({{ f.meal }}){% endif %}</span>
-                    </li>
-                    {% endfor %}
-                </ul>
-            </div>
-            {% endif %}
-
-            {% if child.diapers %}
-            <div class="section">
-                <div class="section-header">
-                    <span class="section-title">👶 Diapers</span>
-                    <span class="section-total">{{ child.totals.wet_diapers }}W / {{ child.totals.bm_diapers }}BM</span>
-                </div>
-                <ul class="event-list">
-                    {% for d in child.diapers %}
-                    <li class="event-item">
-                        <span class="event-time">{{ d.time[11:16] }}</span>
-                        <span class="event-detail">
-                            {% if d.type == 'Wet' %}💧{% elif d.type == 'BM' %}💩{% else %}⭕{% endif %}
-                            {{ d.type }}
-                            {% if d.notes %}<span class="event-note">- {{ d.notes }}</span>{% endif %}
-                        </span>
-                    </li>
-                    {% endfor %}
-                </ul>
-            </div>
-            {% endif %}
-
-            {% if child.naps %}
-            <div class="section">
-                <div class="section-header">
-                    <span class="section-title">😴 Naps</span>
-                    <span class="section-total">{{ child.totals.nap_minutes if child.totals.nap_minutes else 0 }}min total</span>
-                </div>
-                <ul class="event-list">
-                    {% for n in child.naps %}
-                    <li class="event-item">
-                        <span class="event-time">{{ n.start[11:16] }} - {{ n.end[11:16] if n.end else '...' }}</span>
-                        <span class="event-detail">
-                            {% if n.duration_minutes %}{{ n.duration_minutes }}min{% else %}In progress{% endif %}
-                            {% if n.position %}<span class="event-note">({{ n.position }})</span>{% endif %}
-                        </span>
-                    </li>
-                    {% endfor %}
-                </ul>
-            </div>
-            {% endif %}
-
-            {% if child.meals %}
-            <div class="section">
-                <div class="section-header">
-                    <span class="section-title">🍴 Meals</span>
-                    <span class="section-total">{{ child.totals.meals_count }} meals</span>
-                </div>
-                <ul class="event-list">
-                    {% for m in child.meals %}
-                    <li class="event-item">
-                        <span class="event-time">{{ m.time[11:16] }}</span>
-                        <span class="event-detail">
-                            {% if m.type %}<strong>{{ m.type }}:</strong>{% endif %}
-                            {{ m['items'][:60] }}{% if m['items']|length > 60 %}...{% endif %}
-                        </span>
-                    </li>
-                    {% endfor %}
-                </ul>
-            </div>
-            {% endif %}
-        </div>
-        {% endfor %}
+    <div class="card" id="childDataCard">
+        <!-- Child data will be rendered here by JavaScript -->
     </div>
     {% else %}
     <div class="card no-data">
@@ -387,10 +315,13 @@
     <!-- Trends Section -->
     <div class="trends-section">
         <div class="trends-header">
-            <h2>Trends (Last 14 Days)</h2>
-        </div>
-        <div class="child-tabs" id="childTabs">
-            <!-- Child tabs will be populated by JavaScript -->
+            <h2>Trends</h2>
+            <div class="range-selector" id="rangeSelector">
+                <button onclick="setRange(14)" class="active" data-days="14">14 Days</button>
+                <button onclick="setRange(30)" data-days="30">This Month</button>
+                <button onclick="setRange(90)" data-days="90">90 Days</button>
+                <button onclick="setRange(365)" data-days="365">1 Year</button>
+            </div>
         </div>
         <div class="chart-grid" id="chartsContainer">
             <!-- Charts will be populated by JavaScript -->
@@ -400,6 +331,416 @@
     <div class="toast" id="toast"></div>
 
     <script>
+        // Store summary data from server
+        const summaryData = {{ summary | tojson | safe if summary else '{}' }};
+        let currentChild = null;
+        let currentRange = 14;
+        let charts = {};
+
+        // Chart colors
+        const chartColors = {
+            accent: '#4ecca3',
+            accentLight: 'rgba(78, 204, 163, 0.2)',
+            blue: '#5dade2',
+            blueLight: 'rgba(93, 173, 226, 0.2)',
+            orange: '#f39c12',
+            orangeLight: 'rgba(243, 156, 18, 0.2)',
+            brown: '#a67c52',
+            brownLight: 'rgba(166, 124, 82, 0.2)',
+            text: '#eee',
+            textMuted: '#888',
+            grid: '#2a2a4a'
+        };
+
+        // Chart.js defaults for dark theme
+        Chart.defaults.color = chartColors.textMuted;
+        Chart.defaults.borderColor = chartColors.grid;
+
+        function init() {
+            const childSelect = document.getElementById('childSelect');
+            if (childSelect && childSelect.options.length > 0) {
+                // Try to restore last selected child from localStorage
+                const savedChild = localStorage.getItem('selectedChild');
+                if (savedChild && Array.from(childSelect.options).some(o => o.value === savedChild)) {
+                    childSelect.value = savedChild;
+                    currentChild = savedChild;
+                } else {
+                    currentChild = childSelect.value;
+                }
+                renderChildData(currentChild);
+                loadChildStats(currentChild, currentRange);
+            }
+        }
+
+        function selectChild(childName) {
+            currentChild = childName;
+            localStorage.setItem('selectedChild', childName);
+            renderChildData(childName);
+            loadChildStats(childName, currentRange);
+        }
+
+        function renderChildData(childName) {
+            const container = document.getElementById('childDataCard');
+            if (!container || !summaryData.children) return;
+
+            const child = summaryData.children[childName];
+            if (!child) {
+                container.innerHTML = '<div class="no-data"><p>No data for this child.</p></div>';
+                return;
+            }
+
+            let html = '';
+
+            // Attendance
+            if (child.sign_in || child.sign_out) {
+                html += `<div class="attendance">`;
+                if (child.sign_in) html += `<span>In: ${child.sign_in.slice(11, 16)}</span>`;
+                if (child.sign_out) html += `<span>Out: ${child.sign_out.slice(11, 16)}</span>`;
+                html += `</div>`;
+            }
+
+            html += '<div class="data-grid">';
+
+            // Bottles
+            if (child.bottles && child.bottles.length > 0) {
+                html += `
+                    <div class="section">
+                        <div class="section-header">
+                            <span class="section-title">🍼 Bottles</span>
+                            <span class="section-total">${child.totals.bottle_oz}oz total</span>
+                        </div>
+                        <ul class="event-list">
+                            ${child.bottles.map(b => `
+                                <li class="event-item">
+                                    <span class="event-time">${b.time.slice(11, 16)}</span>
+                                    <span class="event-detail">${b.consumed}oz ${b.milk_type}</span>
+                                </li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
+
+            // Fluids
+            if (child.fluids && child.fluids.length > 0) {
+                html += `
+                    <div class="section">
+                        <div class="section-header">
+                            <span class="section-title">🥤 Fluids</span>
+                            <span class="section-total">${child.totals.fluids_oz}oz total</span>
+                        </div>
+                        <ul class="event-list">
+                            ${child.fluids.map(f => `
+                                <li class="event-item">
+                                    <span class="event-time">${f.time.slice(11, 16)}</span>
+                                    <span class="event-detail">${f.ounces}oz${f.meal ? ` (${f.meal})` : ''}</span>
+                                </li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
+
+            // Diapers
+            if (child.diapers && child.diapers.length > 0) {
+                html += `
+                    <div class="section">
+                        <div class="section-header">
+                            <span class="section-title">👶 Diapers</span>
+                            <span class="section-total">${child.totals.wet_diapers}W / ${child.totals.bm_diapers}BM</span>
+                        </div>
+                        <ul class="event-list">
+                            ${child.diapers.map(d => `
+                                <li class="event-item">
+                                    <span class="event-time">${d.time.slice(11, 16)}</span>
+                                    <span class="event-detail">
+                                        ${d.type === 'Wet' ? '💧' : d.type === 'BM' ? '💩' : '⭕'} ${d.type}
+                                        ${d.notes ? `<span class="event-note">- ${d.notes}</span>` : ''}
+                                    </span>
+                                </li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
+
+            // Naps
+            if (child.naps && child.naps.length > 0) {
+                html += `
+                    <div class="section">
+                        <div class="section-header">
+                            <span class="section-title">😴 Naps</span>
+                            <span class="section-total">${child.totals.nap_minutes || 0}min total</span>
+                        </div>
+                        <ul class="event-list">
+                            ${child.naps.map(n => `
+                                <li class="event-item">
+                                    <span class="event-time">${n.start.slice(11, 16)} - ${n.end ? n.end.slice(11, 16) : '...'}</span>
+                                    <span class="event-detail">
+                                        ${n.duration_minutes ? `${n.duration_minutes}min` : 'In progress'}
+                                        ${n.position ? `<span class="event-note">(${n.position})</span>` : ''}
+                                    </span>
+                                </li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
+
+            // Meals
+            if (child.meals && child.meals.length > 0) {
+                html += `
+                    <div class="section">
+                        <div class="section-header">
+                            <span class="section-title">🍴 Meals</span>
+                            <span class="section-total">${child.totals.meals_count} meals</span>
+                        </div>
+                        <ul class="event-list">
+                            ${child.meals.map(m => `
+                                <li class="event-item">
+                                    <span class="event-time">${m.time.slice(11, 16)}</span>
+                                    <span class="event-detail">
+                                        ${m.type ? `<strong>${m.type}:</strong>` : ''}
+                                        ${m.items.slice(0, 60)}${m.items.length > 60 ? '...' : ''}
+                                    </span>
+                                </li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+
+            if (html === '<div class="data-grid"></div>') {
+                html = '<div class="no-data" style="padding: 30px;"><p>No events recorded for this child today.</p></div>';
+            }
+
+            container.innerHTML = html;
+        }
+
+        function setRange(days) {
+            currentRange = days;
+
+            // Update active button
+            document.querySelectorAll('.range-selector button').forEach(btn => {
+                btn.classList.toggle('active', parseInt(btn.dataset.days) === days);
+            });
+
+            if (currentChild) {
+                loadChildStats(currentChild, days);
+            }
+        }
+
+        async function loadChildStats(childName, days) {
+            try {
+                const res = await fetch(`/api/stats/${encodeURIComponent(childName)}?days=${days}`);
+                const data = await res.json();
+                renderCharts(childName, data.days || [], days);
+            } catch (e) {
+                console.error('Failed to load stats:', e);
+            }
+        }
+
+        function renderCharts(childName, stats, days) {
+            // Destroy existing charts
+            Object.values(charts).forEach(chart => chart.destroy());
+            charts = {};
+
+            const container = document.getElementById('chartsContainer');
+            const labels = stats.map(s => {
+                // Format labels based on range
+                if (days <= 14) return s.date.slice(5); // MM-DD
+                if (days <= 90) return s.date.slice(5); // MM-DD
+                return s.date.slice(2, 7); // YY-MM
+            });
+
+            // Detect what data types this child has
+            const hasNaps = stats.some(s => s.nap_minutes > 0);
+            const hasDiapers = stats.some(s => s.wet_diapers > 0 || s.bm_diapers > 0);
+            const hasBottles = stats.some(s => s.bottle_oz > 0);
+            const hasFluids = stats.some(s => s.fluids_oz > 0);
+            const hasMeals = stats.some(s => s.meals_count > 0);
+
+            // Common chart options
+            const commonOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: {
+                        grid: { color: chartColors.grid },
+                        ticks: { maxTicksLimit: days > 30 ? 10 : undefined }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: chartColors.grid }
+                    }
+                }
+            };
+
+            let chartsHtml = '';
+
+            // 1. Sleep Chart (always show)
+            chartsHtml += `
+                <div class="chart-card">
+                    <h3>😴 Sleep Duration</h3>
+                    <div class="chart-container">
+                        ${hasNaps ? '<canvas id="sleepChart"></canvas>' : '<div class="no-chart-data">No sleep data available</div>'}
+                    </div>
+                </div>
+            `;
+
+            // 2. Nutrition Chart (combines bottles/fluids for infants, meals for older kids)
+            chartsHtml += `
+                <div class="chart-card">
+                    <h3>🍽️ Nutrition</h3>
+                    <div class="chart-container">
+                        ${(hasBottles || hasFluids || hasMeals) ? '<canvas id="nutritionChart"></canvas>' : '<div class="no-chart-data">No nutrition data available</div>'}
+                    </div>
+                </div>
+            `;
+
+            // 3. Diapers Chart (only if data exists)
+            if (hasDiapers) {
+                chartsHtml += `
+                    <div class="chart-card">
+                        <h3>👶 Diapers</h3>
+                        <div class="chart-container">
+                            <canvas id="diaperChart"></canvas>
+                        </div>
+                    </div>
+                `;
+            }
+
+            container.innerHTML = chartsHtml;
+
+            // Create Sleep Chart
+            if (hasNaps) {
+                const sleepCtx = document.getElementById('sleepChart');
+                if (sleepCtx) {
+                    charts.sleep = new Chart(sleepCtx, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: 'Minutes',
+                                data: stats.map(s => s.nap_minutes),
+                                borderColor: chartColors.accent,
+                                backgroundColor: chartColors.accentLight,
+                                fill: true,
+                                tension: 0.3
+                            }]
+                        },
+                        options: commonOptions
+                    });
+                }
+            }
+
+            // Create Nutrition Chart
+            const nutritionCtx = document.getElementById('nutritionChart');
+            if (nutritionCtx) {
+                const datasets = [];
+
+                if (hasBottles) {
+                    datasets.push({
+                        label: 'Bottles (oz)',
+                        data: stats.map(s => s.bottle_oz),
+                        borderColor: chartColors.accent,
+                        backgroundColor: 'transparent',
+                        tension: 0.3
+                    });
+                }
+
+                if (hasFluids) {
+                    datasets.push({
+                        label: 'Fluids (oz)',
+                        data: stats.map(s => s.fluids_oz),
+                        borderColor: chartColors.blue,
+                        backgroundColor: 'transparent',
+                        tension: 0.3
+                    });
+                }
+
+                if (hasMeals) {
+                    datasets.push({
+                        label: 'Meals',
+                        data: stats.map(s => s.meals_count),
+                        borderColor: chartColors.orange,
+                        backgroundColor: 'transparent',
+                        tension: 0.3,
+                        yAxisID: hasMeals && (hasBottles || hasFluids) ? 'y1' : 'y'
+                    });
+                }
+
+                const nutritionOptions = {
+                    ...commonOptions,
+                    plugins: {
+                        legend: { display: datasets.length > 1, position: 'top' }
+                    }
+                };
+
+                // Add secondary Y axis if we have both oz and meal counts
+                if (hasMeals && (hasBottles || hasFluids)) {
+                    nutritionOptions.scales.y1 = {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        beginAtZero: true,
+                        grid: { drawOnChartArea: false },
+                        title: { display: true, text: 'Meals' }
+                    };
+                    nutritionOptions.scales.y.title = { display: true, text: 'Ounces' };
+                }
+
+                if (datasets.length > 0) {
+                    charts.nutrition = new Chart(nutritionCtx, {
+                        type: 'line',
+                        data: { labels, datasets },
+                        options: nutritionOptions
+                    });
+                }
+            }
+
+            // Create Diapers Chart
+            if (hasDiapers) {
+                const diaperCtx = document.getElementById('diaperChart');
+                if (diaperCtx) {
+                    charts.diaper = new Chart(diaperCtx, {
+                        type: 'bar',
+                        data: {
+                            labels: labels,
+                            datasets: [
+                                {
+                                    label: 'Wet',
+                                    data: stats.map(s => s.wet_diapers),
+                                    backgroundColor: chartColors.blue
+                                },
+                                {
+                                    label: 'BM',
+                                    data: stats.map(s => s.bm_diapers),
+                                    backgroundColor: chartColors.brown
+                                }
+                            ]
+                        },
+                        options: {
+                            ...commonOptions,
+                            plugins: {
+                                legend: { display: true, position: 'top' }
+                            },
+                            scales: {
+                                ...commonOptions.scales,
+                                x: { ...commonOptions.scales.x, stacked: true },
+                                y: { ...commonOptions.scales.y, stacked: true }
+                            }
+                        }
+                    });
+                }
+            }
+        }
+
         async function triggerScrape() {
             const btn = document.getElementById('scrapeBtn');
             btn.disabled = true;
@@ -469,7 +810,6 @@
                 const data = await res.json();
 
                 if (res.ok) {
-                    // Copy to clipboard
                     await navigator.clipboard.writeText(data.magic_link);
                     showToast('Share link copied to clipboard! Valid for 24 hours.', false);
                 } else {
@@ -483,261 +823,8 @@
             }
         }
 
-        // Chart colors
-        const chartColors = {
-            accent: '#4ecca3',
-            accentLight: 'rgba(78, 204, 163, 0.2)',
-            blue: '#5dade2',
-            blueLight: 'rgba(93, 173, 226, 0.2)',
-            brown: '#a67c52',
-            brownLight: 'rgba(166, 124, 82, 0.2)',
-            text: '#eee',
-            textMuted: '#888',
-            grid: '#2a2a4a'
-        };
-
-        // Chart.js defaults for dark theme
-        Chart.defaults.color = chartColors.textMuted;
-        Chart.defaults.borderColor = chartColors.grid;
-
-        let charts = {};
-        let currentChild = null;
-
-        async function loadChildren() {
-            try {
-                const res = await fetch('/api/children');
-                const data = await res.json();
-                const children = data.children || [];
-
-                const tabsContainer = document.getElementById('childTabs');
-                tabsContainer.innerHTML = '';
-
-                children.forEach((name, index) => {
-                    const btn = document.createElement('button');
-                    btn.textContent = name.split(' ')[0]; // First name only
-                    btn.onclick = () => selectChild(name);
-                    if (index === 0) {
-                        btn.classList.add('active');
-                        currentChild = name;
-                    }
-                    tabsContainer.appendChild(btn);
-                });
-
-                if (children.length > 0) {
-                    loadChildStats(children[0]);
-                }
-            } catch (e) {
-                console.error('Failed to load children:', e);
-            }
-        }
-
-        function selectChild(name) {
-            currentChild = name;
-
-            // Update active tab
-            document.querySelectorAll('.child-tabs button').forEach(btn => {
-                btn.classList.toggle('active', btn.textContent === name.split(' ')[0]);
-            });
-
-            loadChildStats(name);
-        }
-
-        async function loadChildStats(childName) {
-            try {
-                const res = await fetch(`/api/stats/${encodeURIComponent(childName)}?days=14`);
-                const data = await res.json();
-                renderCharts(childName, data.days || []);
-            } catch (e) {
-                console.error('Failed to load stats:', e);
-            }
-        }
-
-        function renderCharts(childName, stats) {
-            // Destroy existing charts
-            Object.values(charts).forEach(chart => chart.destroy());
-            charts = {};
-
-            const container = document.getElementById('chartsContainer');
-            const firstName = childName.split(' ')[0].toLowerCase();
-
-            // Determine which charts to show based on child
-            const labels = stats.map(s => s.date.slice(5)); // MM-DD format
-
-            // Common chart options
-            const commonOptions = {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false }
-                },
-                scales: {
-                    x: {
-                        grid: { color: chartColors.grid }
-                    },
-                    y: {
-                        beginAtZero: true,
-                        grid: { color: chartColors.grid }
-                    }
-                }
-            };
-
-            let chartsHtml = '';
-
-            // Nap Duration Chart (for all children)
-            chartsHtml += `
-                <div class="chart-card">
-                    <h3>😴 Nap Duration (minutes)</h3>
-                    <div class="chart-container">
-                        <canvas id="napChart"></canvas>
-                    </div>
-                </div>
-            `;
-
-            // Diaper Chart (mainly for infants like Ezra)
-            if (firstName === 'ezra' || stats.some(s => s.wet_diapers > 0 || s.bm_diapers > 0)) {
-                chartsHtml += `
-                    <div class="chart-card">
-                        <h3>👶 Diapers</h3>
-                        <div class="chart-container">
-                            <canvas id="diaperChart"></canvas>
-                        </div>
-                    </div>
-                `;
-            }
-
-            // Bottles/Fluids Chart (mainly for infants like Ezra)
-            if (firstName === 'ezra' || stats.some(s => s.bottle_oz > 0 || s.fluids_oz > 0)) {
-                chartsHtml += `
-                    <div class="chart-card">
-                        <h3>🍼 Bottles & Fluids (oz)</h3>
-                        <div class="chart-container">
-                            <canvas id="bottleChart"></canvas>
-                        </div>
-                    </div>
-                `;
-            }
-
-            // Meals Chart (mainly for older kids like Killian)
-            if (firstName === 'killian' || stats.some(s => s.meals_count > 0)) {
-                chartsHtml += `
-                    <div class="chart-card">
-                        <h3>🍴 Meals per Day</h3>
-                        <div class="chart-container">
-                            <canvas id="mealsChart"></canvas>
-                        </div>
-                    </div>
-                `;
-            }
-
-            container.innerHTML = chartsHtml;
-
-            // Create Nap Chart
-            const napCtx = document.getElementById('napChart');
-            if (napCtx) {
-                charts.nap = new Chart(napCtx, {
-                    type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: 'Nap Minutes',
-                            data: stats.map(s => s.nap_minutes),
-                            borderColor: chartColors.accent,
-                            backgroundColor: chartColors.accentLight,
-                            fill: true,
-                            tension: 0.3
-                        }]
-                    },
-                    options: commonOptions
-                });
-            }
-
-            // Create Diaper Chart
-            const diaperCtx = document.getElementById('diaperChart');
-            if (diaperCtx) {
-                charts.diaper = new Chart(diaperCtx, {
-                    type: 'bar',
-                    data: {
-                        labels: labels,
-                        datasets: [
-                            {
-                                label: 'Wet',
-                                data: stats.map(s => s.wet_diapers),
-                                backgroundColor: chartColors.blue
-                            },
-                            {
-                                label: 'BM',
-                                data: stats.map(s => s.bm_diapers),
-                                backgroundColor: chartColors.brown
-                            }
-                        ]
-                    },
-                    options: {
-                        ...commonOptions,
-                        plugins: {
-                            legend: { display: true, position: 'top' }
-                        },
-                        scales: {
-                            ...commonOptions.scales,
-                            x: { ...commonOptions.scales.x, stacked: true },
-                            y: { ...commonOptions.scales.y, stacked: true }
-                        }
-                    }
-                });
-            }
-
-            // Create Bottles/Fluids Chart
-            const bottleCtx = document.getElementById('bottleChart');
-            if (bottleCtx) {
-                charts.bottle = new Chart(bottleCtx, {
-                    type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [
-                            {
-                                label: 'Bottles',
-                                data: stats.map(s => s.bottle_oz),
-                                borderColor: chartColors.accent,
-                                backgroundColor: 'transparent',
-                                tension: 0.3
-                            },
-                            {
-                                label: 'Fluids',
-                                data: stats.map(s => s.fluids_oz),
-                                borderColor: chartColors.blue,
-                                backgroundColor: 'transparent',
-                                tension: 0.3
-                            }
-                        ]
-                    },
-                    options: {
-                        ...commonOptions,
-                        plugins: {
-                            legend: { display: true, position: 'top' }
-                        }
-                    }
-                });
-            }
-
-            // Create Meals Chart
-            const mealsCtx = document.getElementById('mealsChart');
-            if (mealsCtx) {
-                charts.meals = new Chart(mealsCtx, {
-                    type: 'bar',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: 'Meals',
-                            data: stats.map(s => s.meals_count),
-                            backgroundColor: chartColors.accent
-                        }]
-                    },
-                    options: commonOptions
-                });
-            }
-        }
-
-        // Load charts on page load
-        document.addEventListener('DOMContentLoaded', loadChildren);
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', init);
     </script>
 </body>
 </html>
