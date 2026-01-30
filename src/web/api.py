@@ -184,9 +184,10 @@ async def magic_login(token: str):
 
 
 # ============== API Endpoints ==============
+# All API endpoints require authentication when AUTH_ENABLED=true
 
 @app.get("/api/status")
-async def get_status():
+async def get_status(request: Request, user: str = Depends(require_auth)):
     """Get the current scraper status."""
     last_scrape = await storage.get_last_scrape()
     return {
@@ -203,7 +204,7 @@ async def get_status():
 
 
 @app.get("/api/summary/today")
-async def get_today_summary():
+async def get_today_summary(request: Request, user: str = Depends(require_auth)):
     """Get today's summary."""
     today = date.today()
     result = await storage.get_summary(today)
@@ -213,7 +214,7 @@ async def get_today_summary():
 
 
 @app.get("/api/summary/{date_str}")
-async def get_summary_by_date(date_str: str):
+async def get_summary_by_date(date_str: str, request: Request, user: str = Depends(require_auth)):
     """Get summary for a specific date (YYYY-MM-DD)."""
     try:
         date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
@@ -227,35 +228,35 @@ async def get_summary_by_date(date_str: str):
 
 
 @app.get("/api/history")
-async def get_history(limit: int = 30):
+async def get_history(request: Request, user: str = Depends(require_auth), limit: int = 30):
     """Get list of available dates with data."""
     dates = await storage.get_available_dates(limit)
     return {"dates": dates, "count": len(dates)}
 
 
 @app.get("/api/scrape-log")
-async def get_scrape_log(limit: int = 20):
+async def get_scrape_log(request: Request, user: str = Depends(require_auth), limit: int = 20):
     """Get recent scrape history."""
     history = await storage.get_scrape_history(limit)
     return {"history": history}
 
 
 @app.get("/api/children")
-async def get_children():
+async def get_children(request: Request, user: str = Depends(require_auth)):
     """Get list of all children."""
     children = await storage.get_all_children()
     return {"children": children}
 
 
 @app.get("/api/stats/{child_name}")
-async def get_child_stats(child_name: str, days: int = 14):
+async def get_child_stats(child_name: str, request: Request, user: str = Depends(require_auth), days: int = 14):
     """Get historical stats for a child for charting."""
     stats = await storage.get_child_stats(child_name, days)
     return {"child": child_name, "days": stats}
 
 
 @app.post("/api/scrape")
-async def trigger_scrape(background_tasks: BackgroundTasks, notify: bool = False):
+async def trigger_scrape(request: Request, background_tasks: BackgroundTasks, user: str = Depends(require_auth), notify: bool = False):
     """Manually trigger a scrape. Notifications disabled by default for manual scrapes."""
     if _scrape_lock.locked():
         raise HTTPException(status_code=409, detail="Scrape already in progress")
@@ -268,7 +269,7 @@ async def trigger_scrape(background_tasks: BackgroundTasks, notify: bool = False
 
 
 @app.post("/api/magic-link")
-async def create_magic_link():
+async def create_magic_link(request: Request, user: str = Depends(require_auth)):
     """Create a magic login link (valid for 24 hours)."""
     if not _config:
         raise HTTPException(status_code=500, detail="Configuration not loaded")
@@ -282,7 +283,7 @@ async def create_magic_link():
 
 
 @app.post("/api/notify")
-async def send_manual_notification():
+async def send_manual_notification(request: Request, user: str = Depends(require_auth)):
     """Send a notification with today's summary."""
     if not _config:
         raise HTTPException(status_code=500, detail="Configuration not loaded")
