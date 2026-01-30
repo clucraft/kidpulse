@@ -18,7 +18,7 @@ class Notifier(ABC):
     """Base class for notifiers."""
 
     @abstractmethod
-    async def send(self, summary: DailySummary) -> bool:
+    async def send(self, summary: DailySummary, magic_link: Optional[str] = None) -> bool:
         """Send a notification. Returns True if successful."""
         pass
 
@@ -34,9 +34,9 @@ class NtfyNotifier(Notifier):
     def __init__(self, config: NtfyConfig):
         self.config = config
 
-    async def send(self, summary: DailySummary) -> bool:
+    async def send(self, summary: DailySummary, magic_link: Optional[str] = None) -> bool:
         """Send daily summary via NTFY."""
-        message = self._format_summary(summary)
+        message = self._format_summary(summary, magic_link)
         title = f"KidPulse - {summary.date.strftime('%b %d')}"
         return await self.send_raw(message, title)
 
@@ -62,7 +62,7 @@ class NtfyNotifier(Notifier):
             logger.error(f"Failed to send NTFY notification: {e}")
             return False
 
-    def _format_summary(self, summary: DailySummary) -> str:
+    def _format_summary(self, summary: DailySummary, magic_link: Optional[str] = None) -> str:
         """Format summary for NTFY (plain text)."""
         lines = []
         date_str = summary.date.strftime("%A, %B %d")
@@ -74,6 +74,10 @@ class NtfyNotifier(Notifier):
             lines.append("")
             lines.extend(self._format_child_summary(child))
             lines.append("")
+
+        if magic_link:
+            lines.append("---")
+            lines.append(f"View Dashboard: {magic_link}")
 
         return "\n".join(lines)
 
@@ -135,9 +139,9 @@ class TelegramNotifier(Notifier):
         self.config = config
         self.bot = Bot(token=config.bot_token) if config.bot_token else None
 
-    async def send(self, summary: DailySummary) -> bool:
+    async def send(self, summary: DailySummary, magic_link: Optional[str] = None) -> bool:
         """Send daily summary via Telegram."""
-        message = self._format_summary(summary)
+        message = self._format_summary(summary, magic_link)
         return await self.send_raw(message)
 
     async def send_raw(self, message: str, title: Optional[str] = None) -> bool:
@@ -162,7 +166,7 @@ class TelegramNotifier(Notifier):
             logger.error(f"Failed to send Telegram notification: {e}")
             return False
 
-    def _format_summary(self, summary: DailySummary) -> str:
+    def _format_summary(self, summary: DailySummary, magic_link: Optional[str] = None) -> str:
         """Format summary for Telegram (Markdown)."""
         lines = []
         date_str = summary.date.strftime("%A, %B %d")
@@ -175,6 +179,10 @@ class TelegramNotifier(Notifier):
             lines.append("")
             lines.extend(self._format_child_summary(child))
             lines.append("")
+
+        if magic_link:
+            lines.append("")
+            lines.append(f"[View Dashboard]({magic_link})")
 
         return "\n".join(lines)
 
@@ -248,12 +256,12 @@ class NotificationManager:
         if telegram:
             self.notifiers.append(telegram)
 
-    async def send_summary(self, summary: DailySummary) -> dict[str, bool]:
+    async def send_summary(self, summary: DailySummary, magic_link: Optional[str] = None) -> dict[str, bool]:
         """Send summary to all configured notifiers."""
         results = {}
         for notifier in self.notifiers:
             name = notifier.__class__.__name__
-            results[name] = await notifier.send(summary)
+            results[name] = await notifier.send(summary, magic_link=magic_link)
         return results
 
     async def send_raw(self, message: str, title: Optional[str] = None) -> dict[str, bool]:

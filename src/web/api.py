@@ -6,10 +6,11 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Form, Depends
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 from ..config import Config
 from ..scraper import PlaygroundScraper
@@ -35,18 +36,151 @@ templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 _config: Optional[Config] = None
 _scrape_lock = asyncio.Lock()
 _next_scrape_time: Optional[str] = None
+_serializer: Optional[URLSafeTimedSerializer] = None
+
+SESSION_COOKIE = "kidpulse_session"
+SESSION_MAX_AGE = 86400 * 7  # 7 days
 
 
 def set_config(config: Config) -> None:
     """Set the global configuration."""
-    global _config
+    global _config, _serializer
     _config = config
+    _serializer = URLSafeTimedSerializer(config.auth.secret)
 
 
 def set_next_scrape_time(time_str: str) -> None:
     """Set the next scheduled scrape time."""
     global _next_scrape_time
     _next_scrape_time = time_str
+
+
+def get_config() -> Config:
+    """Get the global configuration."""
+    if not _config:
+        raise HTTPException(status_code=500, detail="Configuration not loaded")
+    return _config
+
+
+# ============== Auth Helpers ==============
+
+def create_session_token(username: str) -> str:
+    """Create a signed session token."""
+    return _serializer.dumps({"user": username})
+
+
+def verify_session_token(token: str) -> Optional[str]:
+    """Verify a session token and return the username, or None if invalid."""
+    try:
+        data = _serializer.loads(token, max_age=SESSION_MAX_AGE)
+        return data.get("user")
+    except (BadSignature, SignatureExpired):
+        return None
+
+
+def get_current_user(request: Request) -> Optional[str]:
+    """Get the current user from session cookie."""
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return None
+    return verify_session_token(token)
+
+
+def require_auth(request: Request) -> str:
+    """Dependency that requires authentication."""
+    config = get_config()
+
+    # If auth is disabled, allow access
+    if not config.auth.enabled:
+        return "anonymous"
+
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+
+async def check_auth_or_redirect(request: Request) -> Optional[RedirectResponse]:
+    """Check auth and return redirect response if not authenticated."""
+    config = get_config()
+
+    if not config.auth.enabled:
+        return None
+
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    return None
+
+
+# ============== Auth Endpoints ==============
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, error: str = None):
+    """Login page."""
+    config = get_config()
+
+    # If auth disabled or already logged in, redirect to dashboard
+    if not config.auth.enabled or get_current_user(request):
+        return RedirectResponse(url="/", status_code=302)
+
+    return templates.TemplateResponse("login.html", {
+        "request": request,
+        "error": error,
+    })
+
+
+@app.post("/login")
+async def login(request: Request, username: str = Form(...), password: str = Form(...)):
+    """Process login."""
+    config = get_config()
+
+    if username == config.auth.username and password == config.auth.password:
+        token = create_session_token(username)
+        response = RedirectResponse(url="/", status_code=302)
+        response.set_cookie(
+            SESSION_COOKIE,
+            token,
+            max_age=SESSION_MAX_AGE,
+            httponly=True,
+            samesite="lax",
+        )
+        return response
+
+    return RedirectResponse(url="/login?error=Invalid+credentials", status_code=302)
+
+
+@app.get("/logout")
+async def logout():
+    """Log out and clear session."""
+    response = RedirectResponse(url="/login", status_code=302)
+    response.delete_cookie(SESSION_COOKIE)
+    return response
+
+
+@app.get("/auth/magic/{token}")
+async def magic_login(token: str):
+    """Magic link login - validates token and creates session."""
+    config = get_config()
+
+    # Validate the magic token
+    if not await storage.validate_magic_token(token):
+        raise HTTPException(status_code=401, detail="Invalid or expired magic link")
+
+    # Mark token as used (optional - could allow reuse within validity period)
+    # await storage.mark_token_used(token)
+
+    # Create session and redirect to dashboard
+    session_token = create_session_token(config.auth.username)
+    response = RedirectResponse(url="/", status_code=302)
+    response.set_cookie(
+        SESSION_COOKIE,
+        session_token,
+        max_age=SESSION_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
 
 
 # ============== API Endpoints ==============
@@ -165,9 +299,16 @@ async def run_scrape(notify: bool = True) -> None:
                         ntfy = NtfyNotifier(_config.ntfy) if _config.ntfy.enabled else None
                         telegram = TelegramNotifier(_config.telegram) if _config.telegram.enabled else None
                         notification_manager = NotificationManager(ntfy=ntfy, telegram=telegram)
+
+                        # Generate magic link for notifications
+                        magic_link = None
+                        if _config.auth.enabled:
+                            token = await storage.create_magic_token(hours_valid=24)
+                            magic_link = f"{_config.base_url}/auth/magic/{token}"
+
                         # Send notification for today's events only
                         today_summary = summaries_by_date[today_str]
-                        await notification_manager.send_summary(today_summary)
+                        await notification_manager.send_summary(today_summary, magic_link=magic_link)
 
                 logger.info(f"Scrape completed: {total_events} events for {len(dates_saved)} date(s)")
 
@@ -181,6 +322,11 @@ async def run_scrape(notify: bool = True) -> None:
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     """Main dashboard page."""
+    # Check authentication
+    redirect = await check_auth_or_redirect(request)
+    if redirect:
+        return redirect
+
     today = date.today()
     yesterday = today - timedelta(days=1)
     summary = await storage.get_summary(today)
@@ -195,12 +341,18 @@ async def dashboard(request: Request):
         "last_scrape": last_scrape,
         "next_scheduled": _next_scrape_time,
         "config": _config,
+        "user": get_current_user(request),
     })
 
 
 @app.get("/day/{date_str}", response_class=HTMLResponse)
 async def day_view(request: Request, date_str: str):
     """View a specific day's data."""
+    # Check authentication
+    redirect = await check_auth_or_redirect(request)
+    if redirect:
+        return redirect
+
     try:
         date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
     except ValueError:
@@ -221,4 +373,5 @@ async def day_view(request: Request, date_str: str):
         "next_scheduled": _next_scrape_time,
         "config": _config,
         "viewing_date": date_str,
+        "user": get_current_user(request),
     })

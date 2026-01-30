@@ -48,6 +48,14 @@ async def init_db() -> None:
                 events_count INTEGER
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS magic_tokens (
+                token TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                used INTEGER DEFAULT 0
+            )
+        """)
         await db.commit()
 
 
@@ -289,3 +297,73 @@ async def get_all_children() -> list[str]:
                 data = json.loads(row[0])
                 return list(data.get("children", {}).keys())
     return []
+
+
+async def create_magic_token(hours_valid: int = 24) -> str:
+    """Create a magic login token that expires after specified hours."""
+    import secrets
+    from datetime import timedelta
+
+    token = secrets.token_urlsafe(32)
+    now = _now()
+    expires = now + timedelta(hours=hours_valid)
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            INSERT INTO magic_tokens (token, created_at, expires_at, used)
+            VALUES (?, ?, ?, 0)
+        """, (token, now.isoformat(), expires.isoformat()))
+        await db.commit()
+
+    return token
+
+
+async def validate_magic_token(token: str) -> bool:
+    """Validate a magic token. Returns True if valid and not expired."""
+    now = _now()
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT expires_at, used FROM magic_tokens WHERE token = ?",
+            (token,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return False
+
+            expires_at = datetime.fromisoformat(row["expires_at"])
+            # Make expires_at timezone-aware if it isn't
+            if expires_at.tzinfo is None:
+                tz_name = os.getenv("TZ", "UTC")
+                try:
+                    tz = ZoneInfo(tz_name)
+                except Exception:
+                    tz = ZoneInfo("UTC")
+                expires_at = expires_at.replace(tzinfo=tz)
+
+            if row["used"] or now > expires_at:
+                return False
+
+            return True
+
+
+async def mark_token_used(token: str) -> None:
+    """Mark a magic token as used."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE magic_tokens SET used = 1 WHERE token = ?",
+            (token,)
+        )
+        await db.commit()
+
+
+async def cleanup_expired_tokens() -> None:
+    """Remove expired magic tokens."""
+    now = _now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "DELETE FROM magic_tokens WHERE expires_at < ?",
+            (now,)
+        )
+        await db.commit()

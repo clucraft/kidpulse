@@ -242,7 +242,12 @@
                 {% endif %}
             </div>
         </div>
-        <button class="btn" onclick="triggerScrape()" id="scrapeBtn">Scrape Now</button>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <button class="btn" onclick="triggerScrape()" id="scrapeBtn">Scrape Now</button>
+            {% if user %}
+            <a href="/logout" style="color: var(--text-muted); font-size: 0.85em; text-decoration: none;">Logout</a>
+            {% endif %}
+        </div>
     </header>
 
     <div class="card">

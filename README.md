@@ -107,6 +107,11 @@ Access the dashboard at `http://localhost:8080`
 | `TELEGRAM_ENABLED` | Enable Telegram notifications | `false` |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token | Required if enabled |
 | `TELEGRAM_CHAT_ID` | Telegram chat ID | Required if enabled |
+| `AUTH_ENABLED` | Enable dashboard login protection | `false` |
+| `AUTH_USERNAME` | Dashboard login username | `admin` |
+| `AUTH_PASSWORD` | Dashboard login password | Required if auth enabled |
+| `AUTH_SECRET` | Secret key for signing tokens (auto-generated if not set) | - |
+| `BASE_URL` | Public URL for magic links in notifications | `http://localhost:8080` |
 | `SUMMARY_TIME` | Time to send daily summary (24h format) | `17:00` |
 | `SCRAPE_INTERVAL` | Minutes between scrapes (0 to disable) | `30` |
 | `TZ` | Timezone (e.g., `America/Indiana/Indianapolis`) | `America/New_York` |

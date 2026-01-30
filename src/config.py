@@ -54,20 +54,32 @@ class AIConfig:
 
 
 @dataclass
+class AuthConfig:
+    """Dashboard authentication config."""
+    enabled: bool
+    username: str
+    password: str
+    secret: str  # For signing cookies/tokens
+
+
+@dataclass
 class Config:
     """Main application configuration."""
     playground: PlaygroundConfig
     ntfy: NtfyConfig
     telegram: TelegramConfig
     ai: AIConfig
+    auth: AuthConfig
     summary_time: str
     scrape_interval: int
     timezone: str
+    base_url: str
     debug: bool
 
     @classmethod
     def from_env(cls) -> "Config":
         """Load configuration from environment variables."""
+        import secrets
         return cls(
             playground=PlaygroundConfig(
                 email=os.getenv("PLAYGROUND_EMAIL", ""),
@@ -92,9 +104,16 @@ class Config:
                 openai_api_key=os.getenv("OPENAI_API_KEY", ""),
                 openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
             ),
+            auth=AuthConfig(
+                enabled=get_bool("AUTH_ENABLED"),
+                username=os.getenv("AUTH_USERNAME", "admin"),
+                password=os.getenv("AUTH_PASSWORD", ""),
+                secret=os.getenv("AUTH_SECRET", secrets.token_hex(32)),
+            ),
             summary_time=os.getenv("SUMMARY_TIME", "17:00"),
             scrape_interval=int(os.getenv("SCRAPE_INTERVAL", "30")),
             timezone=os.getenv("TZ", "America/New_York"),
+            base_url=os.getenv("BASE_URL", "http://localhost:8080"),
             debug=get_bool("DEBUG"),
         )
 

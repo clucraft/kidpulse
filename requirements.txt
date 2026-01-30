@@ -10,3 +10,5 @@ fastapi==0.115.0
 uvicorn==0.32.0
 aiosqlite==0.20.0
 tzdata==2024.1
+itsdangerous==2.2.0
+python-multipart==0.0.9
