@@ -415,13 +415,15 @@ class PlaygroundScraper:
 
         # Check for Sign In/Out events - must match specific format "Sign Out ·" or "Sign In ·"
         # Extract timestamp from AFTER the Sign In/Out text to avoid grabbing wrong timestamp
+        # The pattern is: "Sign Out · Name" ... "Occurred at [TIMESTAMP]"
+        # Use [\s\S] to match across newlines (handles \n\n double newlines)
         sign_out_match = re.search(
-            r"Sign\s+Out\s*·[^\n]*\n[^\n]*\n[^\n]*Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
+            r"Sign\s+Out\s*·[\s\S]*?Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
             text,
             re.IGNORECASE
         )
         sign_in_match = re.search(
-            r"Sign\s+In\s*·[^\n]*\n[^\n]*\n[^\n]*Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
+            r"Sign\s+In\s*·[\s\S]*?Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
             text,
             re.IGNORECASE
         )
@@ -433,7 +435,7 @@ class PlaygroundScraper:
                 child.sign_out_events.append(sign_out_time)
                 logger.info(f"Parsed sign out: {sign_out_time}")
 
-        elif sign_in_match:
+        if sign_in_match:
             # Extract the timestamp specifically from the Sign In event
             sign_in_time = self._parse_timestamp_string(sign_in_match.group(1))
             if sign_in_time and sign_in_time not in child.sign_in_events:
@@ -519,13 +521,15 @@ class PlaygroundScraper:
 
         # Check for Sign In/Out events - must match specific format "Sign Out ·" or "Sign In ·"
         # Extract timestamp from AFTER the Sign In/Out text to avoid grabbing wrong timestamp
+        # The pattern is: "Sign Out · Name" ... "Occurred at [TIMESTAMP]"
+        # Use [\s\S] to match across newlines (handles \n\n double newlines)
         sign_out_match = re.search(
-            r"Sign\s+Out\s*·[^\n]*\n[^\n]*\n[^\n]*Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
+            r"Sign\s+Out\s*·[\s\S]*?Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
             text,
             re.IGNORECASE
         )
         sign_in_match = re.search(
-            r"Sign\s+In\s*·[^\n]*\n[^\n]*\n[^\n]*Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
+            r"Sign\s+In\s*·[\s\S]*?Occurred at\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
             text,
             re.IGNORECASE
         )
@@ -537,7 +541,7 @@ class PlaygroundScraper:
                 child.sign_out_events.append(sign_out_time)
                 logger.info(f"Parsed sign out: {sign_out_time}")
 
-        elif sign_in_match:
+        if sign_in_match:
             # Extract the timestamp specifically from the Sign In event
             sign_in_time = self._parse_timestamp_string(sign_in_match.group(1))
             if sign_in_time and sign_in_time not in child.sign_in_events:
