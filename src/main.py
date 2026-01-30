@@ -47,9 +47,17 @@ async def run_scheduled_scrape(config: Config, notify: bool = True) -> None:
 async def scheduler_loop(config: Config) -> None:
     """Run the scheduler loop."""
     global shutdown_requested
+    from zoneinfo import ZoneInfo
 
-    # Schedule daily summary (with notifications)
-    schedule.every().day.at(config.summary_time).do(
+    # Get configured timezone
+    try:
+        tz = ZoneInfo(config.timezone)
+    except Exception:
+        tz = None
+        logger.warning(f"Invalid timezone '{config.timezone}', using system time")
+
+    # Schedule daily summary (with notifications) - use configured timezone
+    schedule.every().day.at(config.summary_time, tz=tz).do(
         lambda: asyncio.create_task(run_scheduled_scrape(config, notify=True))
     )
 
@@ -58,11 +66,11 @@ async def scheduler_loop(config: Config) -> None:
         schedule.every(config.scrape_interval).minutes.do(
             lambda: asyncio.create_task(run_scheduled_scrape(config, notify=False))
         )
-        logger.info(f"Scheduler started. Scraping every {config.scrape_interval} minutes, daily summary at {config.summary_time}")
-        set_next_scrape_time(f"Every {config.scrape_interval}min, summary at {config.summary_time}")
+        logger.info(f"Scheduler started. Scraping every {config.scrape_interval} minutes, daily summary at {config.summary_time} ({config.timezone})")
+        set_next_scrape_time(f"Every {config.scrape_interval}min, summary at {config.summary_time} {config.timezone}")
     else:
-        logger.info(f"Scheduler started. Daily summary at {config.summary_time} (interval scraping disabled)")
-        set_next_scrape_time(config.summary_time)
+        logger.info(f"Scheduler started. Daily summary at {config.summary_time} ({config.timezone})")
+        set_next_scrape_time(f"{config.summary_time} {config.timezone}")
 
     # Run immediately on startup if requested
     if os.getenv("RUN_ON_STARTUP", "false").lower() == "true":
