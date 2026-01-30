@@ -120,17 +120,6 @@ async def main() -> None:
     )
     server = uvicorn.Server(uvicorn_config)
 
-    # Send startup notification
-    ntfy = NtfyNotifier(config.ntfy) if config.ntfy.enabled else None
-    telegram = TelegramNotifier(config.telegram) if config.telegram.enabled else None
-    notification_manager = NotificationManager(ntfy=ntfy, telegram=telegram)
-
-    interval_msg = f"Scraping every {config.scrape_interval} min\n" if config.scrape_interval > 0 else ""
-    await notification_manager.send_raw(
-        f"KidPulse started.\n{interval_msg}Daily summary at {config.summary_time}\nWeb UI: http://localhost:{web_port}",
-        title="KidPulse Started"
-    )
-
     logger.info(f"Web UI available at http://localhost:{web_port}")
 
     # Run both scheduler and web server
@@ -144,7 +133,6 @@ async def main() -> None:
 
     # Graceful shutdown
     logger.info("Shutting down...")
-    await notification_manager.send_raw("KidPulse shutting down.", title="KidPulse")
 
 
 def cli() -> None:

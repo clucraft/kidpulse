@@ -68,6 +68,8 @@
         .btn:hover { background: var(--accent-hover); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-sm { padding: 6px 12px; font-size: 0.85em; }
+        .btn-secondary { background: var(--card-bg); color: var(--text); border: 1px solid var(--border); }
+        .btn-secondary:hover { background: var(--border); }
         .card {
             background: var(--card-bg);
             border-radius: 12px;
@@ -242,8 +244,12 @@
                 {% endif %}
             </div>
         </div>
-        <div style="display: flex; gap: 10px; align-items: center;">
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
             <button class="btn" onclick="triggerScrape()" id="scrapeBtn">Scrape Now</button>
+            <button class="btn btn-secondary" onclick="sendNotification()" id="notifyBtn">Send Notification</button>
+            {% if config and config.auth and config.auth.enabled %}
+            <button class="btn btn-secondary" onclick="createShareLink()" id="shareBtn">Share Link</button>
+            {% endif %}
             {% if user %}
             <a href="/logout" style="color: var(--text-muted); font-size: 0.85em; text-decoration: none;">Logout</a>
             {% endif %}
@@ -428,6 +434,52 @@
         function goToDate(dateStr) {
             if (dateStr) {
                 window.location.href = '/day/' + dateStr;
+            }
+        }
+
+        async function sendNotification() {
+            const btn = document.getElementById('notifyBtn');
+            btn.disabled = true;
+            btn.textContent = 'Sending...';
+
+            try {
+                const res = await fetch('/api/notify', { method: 'POST' });
+                const data = await res.json();
+
+                if (res.ok) {
+                    showToast('Notification sent!', false);
+                } else {
+                    showToast(data.detail || 'Failed to send notification', true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Send Notification';
+            }
+        }
+
+        async function createShareLink() {
+            const btn = document.getElementById('shareBtn');
+            btn.disabled = true;
+            btn.textContent = 'Creating...';
+
+            try {
+                const res = await fetch('/api/magic-link', { method: 'POST' });
+                const data = await res.json();
+
+                if (res.ok) {
+                    // Copy to clipboard
+                    await navigator.clipboard.writeText(data.magic_link);
+                    showToast('Share link copied to clipboard! Valid for 24 hours.', false);
+                } else {
+                    showToast(data.detail || 'Failed to create link', true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Share Link';
             }
         }
 

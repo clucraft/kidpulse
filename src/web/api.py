@@ -267,6 +267,50 @@ async def trigger_scrape(background_tasks: BackgroundTasks, notify: bool = False
     return {"message": "Scrape started", "notify": notify}
 
 
+@app.post("/api/magic-link")
+async def create_magic_link():
+    """Create a magic login link (valid for 24 hours)."""
+    if not _config:
+        raise HTTPException(status_code=500, detail="Configuration not loaded")
+
+    if not _config.auth.enabled:
+        raise HTTPException(status_code=400, detail="Authentication is not enabled")
+
+    token = await storage.create_magic_token(hours_valid=24)
+    magic_link = f"{_config.base_url}/auth/magic/{token}"
+    return {"magic_link": magic_link, "expires_in": "24 hours"}
+
+
+@app.post("/api/notify")
+async def send_manual_notification():
+    """Send a notification with today's summary."""
+    if not _config:
+        raise HTTPException(status_code=500, detail="Configuration not loaded")
+
+    today = date.today()
+    result = await storage.get_summary(today)
+
+    if not result or not result.get("data"):
+        raise HTTPException(status_code=404, detail="No data for today to send")
+
+    # Rebuild summary from stored data
+    from ..models import DailySummary
+    summary = DailySummary.from_dict(result["data"])
+
+    ntfy = NtfyNotifier(_config.ntfy) if _config.ntfy.enabled else None
+    telegram = TelegramNotifier(_config.telegram) if _config.telegram.enabled else None
+    notification_manager = NotificationManager(ntfy=ntfy, telegram=telegram)
+
+    # Generate magic link if auth is enabled
+    magic_link = None
+    if _config.auth.enabled:
+        token = await storage.create_magic_token(hours_valid=24)
+        magic_link = f"{_config.base_url}/auth/magic/{token}"
+
+    await notification_manager.send_summary(summary, magic_link=magic_link)
+    return {"message": "Notification sent", "magic_link_included": magic_link is not None}
+
+
 async def run_scrape(notify: bool = True) -> None:
     """Run the scraper (called as background task)."""
     async with _scrape_lock:
