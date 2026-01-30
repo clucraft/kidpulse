@@ -80,11 +80,11 @@ class PlaygroundScraper:
             raise RuntimeError("Browser not started")
 
         logger.info("Navigating to Playground...")
-        await self.page.goto(f"{self.config.base_url}/login")
+        await self.page.goto(f"{self.config.base_url}/signin")
         await self.page.wait_for_load_state("networkidle")
 
         # Check if already logged in (redirected away from login)
-        if "/login" not in self.page.url:
+        if "/signin" not in self.page.url:
             logger.info("Already logged in")
             return True
 
@@ -101,7 +101,7 @@ class PlaygroundScraper:
             await self.page.click('button[type="submit"]')
 
             # Wait for navigation away from login page
-            await self.page.wait_for_url(lambda url: "/login" not in url, timeout=15000)
+            await self.page.wait_for_url(lambda url: "/signin" not in url, timeout=15000)
             await self.page.wait_for_load_state("networkidle")
 
             logger.info("Login successful")
