@@ -308,7 +308,9 @@ class PlaygroundScraper:
                 if len(text) > 50:
                     logger.debug(f"Feed item text: {text[:100]}...")
 
-                if today_short in text or today_str in text:
+                # Parse all feed items - extract date from content instead of filtering
+                # Check for any date pattern to ensure it's an event (not navigation/header)
+                if re.search(r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}", text):
                     await self._parse_feed_item(text, child, date)
 
             except Exception as e:
@@ -432,23 +434,33 @@ class PlaygroundScraper:
 
     def _extract_timestamp(self, text: str, date: datetime) -> datetime:
         """Extract timestamp from feed item text."""
-        # Look for "Occurred at Jan 29, 2026 3:06 PM" pattern
-        occurred_match = re.search(
-            r"(?:Occurred at|at)\s+\w+\s+\d{1,2},?\s+\d{4}\s+(\d{1,2}):(\d{2})\s*(AM|PM)",
+        # Look for full date+time pattern "Jan 29, 2026 3:06 PM"
+        full_match = re.search(
+            r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),?\s+(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)",
             text,
             re.IGNORECASE
         )
-        if occurred_match:
-            hour = int(occurred_match.group(1))
-            minute = int(occurred_match.group(2))
-            ampm = occurred_match.group(3).upper()
+        if full_match:
+            month_str = full_match.group(1)
+            day = int(full_match.group(2))
+            year = int(full_match.group(3))
+            hour = int(full_match.group(4))
+            minute = int(full_match.group(5))
+            ampm = full_match.group(6).upper()
+
+            # Convert month name to number
+            months = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+                      "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+            month = months.get(month_str.lower(), 1)
+
             if ampm == "PM" and hour != 12:
                 hour += 12
             elif ampm == "AM" and hour == 12:
                 hour = 0
-            return date.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
-        # Look for simpler time pattern "3:06 PM"
+            return datetime(year, month, day, hour, minute, 0)
+
+        # Look for simpler time pattern "3:06 PM" (use provided date)
         time_match = re.search(r"(\d{1,2}):(\d{2})\s*(AM|PM)", text, re.IGNORECASE)
         if time_match:
             hour = int(time_match.group(1))
@@ -543,18 +555,26 @@ class PlaygroundScraper:
         """Parse napping event from text."""
         # Look for "From Jan 29, 2026 1:18 PM until 1:38 PM" pattern
         from_until_match = re.search(
-            r"From\s+\w+\s+\d{1,2},?\s+\d{4}\s+(\d{1,2}):(\d{2})\s*(AM|PM)\s+until\s+(\d{1,2}):(\d{2})\s*(AM|PM)",
+            r"From\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),?\s+(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)\s+until\s+(\d{1,2}):(\d{2})\s*(AM|PM)",
             text,
             re.IGNORECASE
         )
 
         if from_until_match:
-            start_hour = int(from_until_match.group(1))
-            start_minute = int(from_until_match.group(2))
-            start_ampm = from_until_match.group(3).upper()
-            end_hour = int(from_until_match.group(4))
-            end_minute = int(from_until_match.group(5))
-            end_ampm = from_until_match.group(6).upper()
+            month_str = from_until_match.group(1)
+            day = int(from_until_match.group(2))
+            year = int(from_until_match.group(3))
+            start_hour = int(from_until_match.group(4))
+            start_minute = int(from_until_match.group(5))
+            start_ampm = from_until_match.group(6).upper()
+            end_hour = int(from_until_match.group(7))
+            end_minute = int(from_until_match.group(8))
+            end_ampm = from_until_match.group(9).upper()
+
+            # Convert month name to number
+            months = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+                      "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+            month = months.get(month_str.lower(), 1)
 
             if start_ampm == "PM" and start_hour != 12:
                 start_hour += 12
@@ -566,8 +586,8 @@ class PlaygroundScraper:
             elif end_ampm == "AM" and end_hour == 12:
                 end_hour = 0
 
-            start_time = date.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
-            end_time = date.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
+            start_time = datetime(year, month, day, start_hour, start_minute, 0)
+            end_time = datetime(year, month, day, end_hour, end_minute, 0)
 
             # Extract position (Back, Side, etc.)
             position = None
