@@ -208,27 +208,8 @@ class PlaygroundScraper:
             child_summary = await self._scrape_child_feed(child_name, date)
             summary.children[child_name] = child_summary
 
-        # Update summary date based on actual event dates
-        event_dates = []
-        for child in summary.children.values():
-            if child.sign_in:
-                event_dates.append(child.sign_in.date())
-            if child.sign_out:
-                event_dates.append(child.sign_out.date())
-            for b in child.bottles:
-                event_dates.append(b.time.date())
-            for d in child.diapers:
-                event_dates.append(d.time.date())
-            for n in child.naps:
-                event_dates.append(n.start_time.date())
-
-        if event_dates:
-            # Use the most common date from events
-            from collections import Counter
-            most_common_date = Counter(event_dates).most_common(1)[0][0]
-            summary.date = datetime.combine(most_common_date, datetime.min.time())
-            logger.info(f"Summary date set to {most_common_date} based on event dates")
-
+        # Note: Events may span multiple dates. The storage layer will split
+        # events by their actual date and save separate summaries.
         return summary
 
     async def _get_child_tabs(self) -> list[str]:

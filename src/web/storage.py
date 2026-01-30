@@ -9,7 +9,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 import aiosqlite
 
-from ..models import DailySummary
+from ..models import DailySummary, ChildSummary
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,97 @@ async def save_summary(summary: DailySummary) -> None:
         await db.commit()
 
     logger.info(f"Saved summary for {date_str}")
+
+
+async def split_and_save_by_date(summary: DailySummary) -> dict[str, DailySummary]:
+    """Split a summary by event dates and save separate summaries for each date.
+
+    Returns a dict mapping date strings to their DailySummary objects.
+    """
+    from collections import defaultdict
+
+    # Group events by date for each child
+    events_by_date: dict[str, dict[str, ChildSummary]] = defaultdict(dict)
+
+    for child_name, child in summary.children.items():
+        # Create a mapping of date -> events for this child
+        child_events_by_date: dict[str, ChildSummary] = defaultdict(
+            lambda name=child_name: ChildSummary(name=name)
+        )
+
+        # Process sign in/out
+        if child.sign_in:
+            date_str = child.sign_in.date().isoformat()
+            if child_name not in events_by_date[date_str]:
+                events_by_date[date_str][child_name] = ChildSummary(name=child_name)
+            events_by_date[date_str][child_name].sign_in = child.sign_in
+
+        if child.sign_out:
+            date_str = child.sign_out.date().isoformat()
+            if child_name not in events_by_date[date_str]:
+                events_by_date[date_str][child_name] = ChildSummary(name=child_name)
+            events_by_date[date_str][child_name].sign_out = child.sign_out
+
+        # Process bottles
+        for bottle in child.bottles:
+            date_str = bottle.time.date().isoformat()
+            if child_name not in events_by_date[date_str]:
+                events_by_date[date_str][child_name] = ChildSummary(name=child_name)
+            events_by_date[date_str][child_name].bottles.append(bottle)
+
+        # Process fluids
+        for fluid in child.fluids:
+            date_str = fluid.time.date().isoformat()
+            if child_name not in events_by_date[date_str]:
+                events_by_date[date_str][child_name] = ChildSummary(name=child_name)
+            events_by_date[date_str][child_name].fluids.append(fluid)
+
+        # Process diapers
+        for diaper in child.diapers:
+            date_str = diaper.time.date().isoformat()
+            if child_name not in events_by_date[date_str]:
+                events_by_date[date_str][child_name] = ChildSummary(name=child_name)
+            events_by_date[date_str][child_name].diapers.append(diaper)
+
+        # Process naps
+        for nap in child.naps:
+            date_str = nap.start_time.date().isoformat()
+            if child_name not in events_by_date[date_str]:
+                events_by_date[date_str][child_name] = ChildSummary(name=child_name)
+            events_by_date[date_str][child_name].naps.append(nap)
+
+        # Process meals
+        for meal in child.meals:
+            date_str = meal.time.date().isoformat()
+            if child_name not in events_by_date[date_str]:
+                events_by_date[date_str][child_name] = ChildSummary(name=child_name)
+            events_by_date[date_str][child_name].meals.append(meal)
+
+    # Create and save summaries for each date
+    result = {}
+    for date_str, children in events_by_date.items():
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        daily_summary = DailySummary(date=date_obj)
+        daily_summary.children = children
+
+        # Merge with existing data for this date (don't overwrite)
+        existing = await get_summary(date_obj.date())
+        if existing and existing.get("data"):
+            existing_data = existing["data"]
+            for child_name, existing_child in existing_data.get("children", {}).items():
+                if child_name in daily_summary.children:
+                    # Merge: keep existing sign_in/out if new ones are missing
+                    new_child = daily_summary.children[child_name]
+                    if not new_child.sign_in and existing_child.get("sign_in"):
+                        new_child.sign_in = datetime.fromisoformat(existing_child["sign_in"])
+                    if not new_child.sign_out and existing_child.get("sign_out"):
+                        new_child.sign_out = datetime.fromisoformat(existing_child["sign_out"])
+
+        await save_summary(daily_summary)
+        result[date_str] = daily_summary
+        logger.info(f"Split and saved {len(children)} children's events for {date_str}")
+
+    return result
 
 
 async def get_summary(date_obj: date) -> Optional[dict]:

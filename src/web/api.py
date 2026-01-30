@@ -138,26 +138,32 @@ async def run_scrape(notify: bool = True) -> None:
 
                 summary = await scraper.get_daily_events(timezone=_config.timezone)
 
-                # Count total events
+                # Split events by date and save separate summaries for each date
+                summaries_by_date = await storage.split_and_save_by_date(summary)
+
+                # Count total events across all dates
                 total_events = sum(
                     len(child.bottles) + len(child.diapers) +
-                    len(child.naps) + len(child.fluids) +
+                    len(child.naps) + len(child.fluids) + len(child.meals) +
                     (1 if child.sign_in else 0) + (1 if child.sign_out else 0)
                     for child in summary.children.values()
                 )
 
-                # Save to database
-                await storage.save_summary(summary)
-                await storage.log_scrape(True, f"Found {total_events} events", total_events)
+                dates_saved = list(summaries_by_date.keys())
+                await storage.log_scrape(True, f"Found {total_events} events for dates: {', '.join(dates_saved)}", total_events)
 
-                # Send notifications if requested
+                # Send notifications if requested (only for today's summary)
                 if notify and total_events > 0:
-                    ntfy = NtfyNotifier(_config.ntfy) if _config.ntfy.enabled else None
-                    telegram = TelegramNotifier(_config.telegram) if _config.telegram.enabled else None
-                    notification_manager = NotificationManager(ntfy=ntfy, telegram=telegram)
-                    await notification_manager.send_summary(summary)
+                    today_str = date.today().isoformat()
+                    if today_str in summaries_by_date:
+                        ntfy = NtfyNotifier(_config.ntfy) if _config.ntfy.enabled else None
+                        telegram = TelegramNotifier(_config.telegram) if _config.telegram.enabled else None
+                        notification_manager = NotificationManager(ntfy=ntfy, telegram=telegram)
+                        # Send notification for today's events only
+                        today_summary = summaries_by_date[today_str]
+                        await notification_manager.send_summary(today_summary)
 
-                logger.info(f"Scrape completed: {total_events} events")
+                logger.info(f"Scrape completed: {total_events} events for {len(dates_saved)} date(s)")
 
         except Exception as e:
             logger.exception(f"Scrape failed: {e}")
