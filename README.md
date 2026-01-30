@@ -4,21 +4,47 @@ Daily event scraper and notification system for Playground (tryplayground.com) c
 
 ## Features
 
-- Scrapes daily events from Playground web portal:
-  - Bottle feedings (milk type, ounces offered/consumed)
-  - Diaper changes (wet/BM, notes)
-  - Nap times (start, end, duration, position)
-  - Fluids intake
-  - Check-in/out times
-- Sends daily summary notifications via:
-  - NTFY (push notifications)
-  - Telegram
-- Supports multiple children
-- Runs on a configurable schedule
-- **Web dashboard** for viewing data
-- **REST API** for integrations (Grafana, Home Assistant, etc.)
-- Docker support for easy deployment (Unraid compatible)
-- Persistent session to minimize logins
+### Event Tracking
+- **Bottle feedings** - milk type, ounces offered/consumed
+- **Diaper changes** - wet/BM, notes
+- **Nap times** - start, end, duration, sleep position
+- **Fluids intake** - ounces, meal association
+- **Meals** - food items, meal type (breakfast/lunch/snack)
+- **Check-in/out times** - arrival and departure
+
+### Notifications
+- **NTFY** - lightweight push notifications
+- **Telegram** - rich formatted messages with emojis
+- Daily summary at configurable time
+- Manual scrapes are silent by default
+
+### Web Dashboard
+- View daily summaries for all children
+- **Date picker** with Today/Yesterday quick buttons
+- **Trends charts** (last 14 days):
+  - Nap duration over time
+  - Diaper counts (wet vs BM)
+  - Bottle & fluid intake
+  - Meal counts
+- Switch between children with tabs
+- Trigger manual scrapes
+- View scrape history and status
+
+### REST API
+- Full JSON API for integrations
+- Works with Grafana, Home Assistant, etc.
+- Historical data access
+
+### Multi-Child Support
+- Handles multiple children automatically
+- Classroom-based event filtering (Infant, Toddler, Older, etc.)
+- Separate data tracking per child
+
+### Deployment
+- Docker support (Unraid compatible)
+- Persistent sessions to minimize logins
+- Configurable timezone support
+- SQLite database for historical data
 
 ## Quick Start
 
@@ -60,6 +86,8 @@ TZ=America/New_York
 docker-compose up -d
 ```
 
+Access the dashboard at `http://localhost:8080`
+
 ## Configuration
 
 | Variable | Description | Default |
@@ -73,22 +101,74 @@ docker-compose up -d
 | `TELEGRAM_ENABLED` | Enable Telegram notifications | `false` |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token | Required if enabled |
 | `TELEGRAM_CHAT_ID` | Telegram chat ID | Required if enabled |
-| `SUMMARY_TIME` | Time to send daily summary (24h) | `17:00` |
-| `SCRAPE_INTERVAL` | Scrape interval in minutes | `30` |
-| `TZ` | Timezone | `America/New_York` |
+| `SUMMARY_TIME` | Time to send daily summary (24h format) | `17:00` |
+| `TZ` | Timezone (e.g., `America/Indiana/Indianapolis`) | `America/New_York` |
 | `RUN_ON_STARTUP` | Run scrape immediately on start | `false` |
 | `DEBUG` | Enable debug logging | `false` |
 | `WEB_PORT` | Web UI/API port | `8080` |
-| `AI_ENABLED` | Use AI for parsing (more robust) | `false` |
+| `AI_ENABLED` | Use AI for parsing (experimental) | `false` |
 | `AI_PROVIDER` | AI provider: `ollama` or `openai` | `ollama` |
 | `OLLAMA_URL` | Ollama server URL | `http://host.docker.internal:11434` |
 | `OLLAMA_MODEL` | Ollama model to use | `qwen3:8b` |
 | `OPENAI_API_KEY` | OpenAI API key (if using OpenAI) | - |
 | `OPENAI_MODEL` | OpenAI model to use | `gpt-4o-mini` |
 
-## AI-Powered Parsing
+## Web Dashboard
 
-KidPulse supports using AI (LLM) to parse the feed instead of regex. This is more robust and handles UI changes automatically.
+Access at `http://localhost:8080` (or your configured port).
+
+### Daily View
+- Summary cards for each child
+- Sign in/out times
+- All events with timestamps
+- Totals for bottles, diapers, nap minutes, meals
+
+### Date Navigation
+- **Today** / **Yesterday** quick buttons
+- Date picker for any historical date
+- Data persists in SQLite database
+
+### Trends Section
+- **Nap Duration** - Line chart of daily sleep totals
+- **Diapers** - Stacked bar chart (wet vs BM)
+- **Bottles & Fluids** - Line chart of daily intake (oz)
+- **Meals** - Bar chart of meals per day
+- Switch between children with tabs
+
+## REST API
+
+All endpoints return JSON.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/status` | GET | Scraper status, last run, next scheduled |
+| `/api/summary/today` | GET | Today's summary data |
+| `/api/summary/{date}` | GET | Summary for specific date (YYYY-MM-DD) |
+| `/api/history` | GET | List of dates with available data |
+| `/api/scrape-log` | GET | Recent scrape history |
+| `/api/scrape` | POST | Trigger manual scrape (silent by default) |
+| `/api/children` | GET | List of all children |
+| `/api/stats/{child_name}` | GET | Historical stats for charts (14 days) |
+
+### Examples
+
+```bash
+# Get today's data
+curl http://localhost:8080/api/summary/today
+
+# Get specific date
+curl http://localhost:8080/api/summary/2026-01-29
+
+# Trigger scrape with notifications
+curl -X POST "http://localhost:8080/api/scrape?notify=true"
+
+# Get child stats for charts
+curl http://localhost:8080/api/stats/Ezra%20Aschenberg?days=14
+```
+
+## AI-Powered Parsing (Experimental)
+
+KidPulse can use AI (LLM) to parse the feed instead of regex. This may be more robust for handling UI changes.
 
 ### Using Ollama (Local, Free)
 
@@ -112,41 +192,6 @@ KidPulse supports using AI (LLM) to parse the feed instead of regex. This is mor
    OPENAI_API_KEY=sk-...
    OPENAI_MODEL=gpt-4o-mini
    ```
-
-## Web Dashboard
-
-Access the web UI at `http://localhost:8080` (or your configured port).
-
-Features:
-- View today's summary for all children
-- Browse historical data by date
-- Trigger manual scrapes
-- See scrape status and history
-
-## REST API
-
-All endpoints return JSON.
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/status` | GET | Scraper status, last run, next scheduled |
-| `/api/summary/today` | GET | Today's summary data |
-| `/api/summary/{date}` | GET | Summary for specific date (YYYY-MM-DD) |
-| `/api/history` | GET | List of dates with available data |
-| `/api/scrape-log` | GET | Recent scrape history |
-| `/api/scrape` | POST | Trigger manual scrape |
-
-### Example: Get today's data
-
-```bash
-curl http://localhost:8080/api/summary/today
-```
-
-### Example: Trigger scrape without notifications
-
-```bash
-curl -X POST "http://localhost:8080/api/scrape?notify=false"
-```
 
 ## Notification Examples
 
@@ -174,7 +219,7 @@ Naps (1):
 ```
 
 ### Telegram
-Includes emojis for bottles, diapers, naps, and attendance with formatted summaries.
+Includes emojis for bottles, diapers, naps, meals, and attendance with formatted summaries.
 
 ## Setting Up Notifications
 
@@ -195,7 +240,7 @@ Includes emojis for bottles, diapers, naps, and attendance with formatted summar
 1. Copy the files to your Unraid appdata folder
 2. Create a docker-compose stack or use the Community Applications
 3. Configure environment variables via Unraid UI
-4. Mount `./session_data` to persist login sessions
+4. Mount `./session_data` to persist login sessions and database
 
 ## Development
 
@@ -232,7 +277,13 @@ Delete `session_data/storage_state.json` to force a fresh login.
 
 ### No Events Found
 
-The scraper looks for events from today's date. If the Playground page structure changes, the CSS selectors in `src/scraper.py` may need to be updated.
+- Ensure the timezone is set correctly (`TZ` variable)
+- Check that the Playground feed shows events for the expected date
+- The scraper saves events under their actual date from the event timestamp
+
+### Wrong Child Data
+
+Events are filtered by classroom. The scraper looks for "Recorded by [Classroom]" to match events to children. If your children are in different classrooms (e.g., Infant vs Older), events are automatically separated.
 
 ## License
 
