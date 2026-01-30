@@ -399,11 +399,32 @@ class PlaygroundScraper:
         child_name_lower = child.name.lower()
 
         # Skip events that explicitly mention a DIFFERENT child's name
-        name_patterns = re.findall(r'(?:Sign (?:In|Out)|Recorded by)[^·]*·\s*([A-Z][a-z]+\s+[A-Z][a-z]+)', text)
+        name_patterns = re.findall(r'(?:Sign (?:In|Out))[^·]*·\s*([A-Z][a-z]+\s+[A-Z][a-z]+)', text)
         if name_patterns:
             for found_name in name_patterns:
                 if found_name.lower() != child_name_lower:
                     logger.debug(f"Skipping event for {found_name}, not {child.name}")
+                    return
+
+        # Filter by classroom based on "Recorded by" text
+        recorded_by_match = re.search(r'Recorded by\s+([^·\n]+)', text)
+        if recorded_by_match:
+            recorder = recorded_by_match.group(1).strip().rstrip('.')
+
+            child_classrooms = {
+                "ezra": ["Infant C"],
+                "killian": ["Older P"],
+            }
+
+            first_name = child.name.split()[0].lower()
+            expected_classrooms = child_classrooms.get(first_name, [])
+
+            if expected_classrooms:
+                is_classroom_event = any(classroom in recorder for classroom in expected_classrooms)
+                is_parent_event = len(recorder.split()) >= 2 and recorder.split()[-1].endswith('.')
+
+                if not is_classroom_event and not is_parent_event:
+                    logger.debug(f"Skipping event recorded by '{recorder}', not {child.name}'s classroom")
                     return
 
         # Extract timestamp
@@ -448,14 +469,39 @@ class PlaygroundScraper:
         child_name_lower = child.name.lower()
 
         # Skip events that explicitly mention a DIFFERENT child's name
-        # Look for patterns like "Sign Out · Other Child" or "Other Child" in event headers
-        # But allow if it contains THIS child's name or no specific child name
-        name_patterns = re.findall(r'(?:Sign (?:In|Out)|Recorded by)[^·]*·\s*([A-Z][a-z]+\s+[A-Z][a-z]+)', text)
+        name_patterns = re.findall(r'(?:Sign (?:In|Out))[^·]*·\s*([A-Z][a-z]+\s+[A-Z][a-z]+)', text)
         if name_patterns:
-            # If we found a name pattern and it's not this child, skip
             for found_name in name_patterns:
                 if found_name.lower() != child_name_lower:
                     logger.debug(f"Skipping event for {found_name}, not {child.name}")
+                    return
+
+        # Filter by classroom based on "Recorded by" text
+        # Each child has a specific classroom teacher/identifier
+        recorded_by_match = re.search(r'Recorded by\s+([^·\n]+)', text)
+        if recorded_by_match:
+            recorder = recorded_by_match.group(1).strip().rstrip('.')
+
+            # Determine which classroom this child belongs to based on their name
+            # This maps children to their classroom identifiers
+            child_classrooms = {
+                "ezra": ["Infant C"],
+                "killian": ["Older P"],
+            }
+
+            # Get this child's expected classrooms
+            first_name = child.name.split()[0].lower()
+            expected_classrooms = child_classrooms.get(first_name, [])
+
+            # If we know this child's classroom, only accept events from that classroom
+            # Also allow events recorded by parents (names with first+last like "Kyle A")
+            if expected_classrooms:
+                is_classroom_event = any(classroom in recorder for classroom in expected_classrooms)
+                is_parent_event = len(recorder.split()) >= 2 and recorder.split()[-1].endswith('.')
+
+                if not is_classroom_event and not is_parent_event:
+                    # This event is from a different classroom
+                    logger.debug(f"Skipping event recorded by '{recorder}', not {child.name}'s classroom")
                     return
 
         # Extract timestamp from text
