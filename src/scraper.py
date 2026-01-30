@@ -188,10 +188,16 @@ class PlaygroundScraper:
         logger.info(f"Found {len(children)} children: {children}")
 
         # Scrape each child's feed
-        for child_name in children:
+        for i, child_name in enumerate(children):
             logger.info(f"Scraping events for {child_name}...")
-            await self._select_child_tab(child_name)
-            await asyncio.sleep(1)  # Wait for feed to update
+
+            # Only click tab if not the first child (first is already selected)
+            if i > 0:
+                clicked = await self._select_child_tab(child_name)
+                if not clicked:
+                    logger.warning(f"Failed to select tab for {child_name}, skipping")
+                    continue
+                await asyncio.sleep(2)  # Extra wait for feed to fully update
 
             child_summary = await self._scrape_child_feed(child_name, date)
             summary.children[child_name] = child_summary
@@ -232,26 +238,34 @@ class PlaygroundScraper:
             logger.warning(f"Could not get child tabs: {e}")
             return ["Child"]
 
-    async def _select_child_tab(self, child_name: str) -> None:
-        """Click on a child's tab to show their feed."""
+    async def _select_child_tab(self, child_name: str) -> bool:
+        """Click on a child's tab to show their feed. Returns True if clicked."""
         try:
             # Try to find and click the tab with the child's name
             tab = await self.page.query_selector(f'[role="tab"]:has-text("{child_name}")')
             if tab:
                 await tab.click()
-                return
+                logger.info(f"Clicked tab for {child_name}")
+                await asyncio.sleep(2)  # Wait for feed to update
+                return True
 
             # Alternative: look for any clickable element with the child's name
             tab = await self.page.query_selector(f'button:has-text("{child_name}")')
             if tab:
                 await tab.click()
-                return
+                logger.info(f"Clicked button for {child_name}")
+                await asyncio.sleep(2)
+                return True
 
             # Try text-based selector
             await self.page.click(f'text="{child_name}"')
+            logger.info(f"Clicked text for {child_name}")
+            await asyncio.sleep(2)
+            return True
 
         except Exception as e:
             logger.warning(f"Could not select tab for {child_name}: {e}")
+            return False
 
     async def _scrape_child_feed(self, child_name: str, date: datetime) -> ChildSummary:
         """Scrape the feed for a single child."""
@@ -259,8 +273,9 @@ class PlaygroundScraper:
         today_str = date.strftime("%b %d, %Y")
         today_short = date.strftime("%b %d")
 
-        # Take a debug screenshot of the feed
-        await self.screenshot("feed_debug.png")
+        # Take a debug screenshot of the feed for this child
+        safe_name = child_name.replace(" ", "_").lower()
+        await self.screenshot(f"feed_{safe_name}.png")
 
         # Get the full page text for AI parsing or fallback
         full_text = await self.page.inner_text('body')
