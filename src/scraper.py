@@ -197,13 +197,13 @@ class PlaygroundScraper:
         for i, child_name in enumerate(children):
             logger.info(f"Scraping events for {child_name}...")
 
-            # Only click tab if not the first child (first is already selected)
-            if i > 0:
-                clicked = await self._select_child_tab(child_name)
-                if not clicked:
-                    logger.warning(f"Failed to select tab for {child_name}, skipping")
-                    continue
-                await asyncio.sleep(2)  # Extra wait for feed to fully update
+            # Always click the tab to ensure we're on the right child's feed
+            # (don't assume the first child is selected by default)
+            clicked = await self._select_child_tab(child_name)
+            if not clicked:
+                logger.warning(f"Failed to select tab for {child_name}, skipping")
+                continue
+            await asyncio.sleep(2)  # Wait for feed to fully update
 
             child_summary = await self._scrape_child_feed(child_name, date)
             summary.children[child_name] = child_summary
