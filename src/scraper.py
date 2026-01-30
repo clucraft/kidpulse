@@ -419,6 +419,8 @@ class PlaygroundScraper:
         is_sign_in_event = re.search(r"Sign\s+In\s*·", text, re.IGNORECASE)
 
         if is_sign_out_event:
+            # Debug: log the text that matched
+            logger.info(f"DEBUG sign out text: {repr(text[:300])}")
             # Track all sign_out events (for multi-day feeds)
             if timestamp not in child.sign_out_events:
                 child.sign_out_events.append(timestamp)
@@ -513,6 +515,8 @@ class PlaygroundScraper:
         is_sign_in_event = re.search(r"Sign\s+In\s*·", text, re.IGNORECASE)
 
         if is_sign_out_event:
+            # Debug: log the text that matched
+            logger.info(f"DEBUG sign out text: {repr(text[:300])}")
             # Track all sign_out events (for multi-day feeds)
             if timestamp not in child.sign_out_events:
                 child.sign_out_events.append(timestamp)
