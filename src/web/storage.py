@@ -9,7 +9,15 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 import aiosqlite
 
-from ..models import DailySummary, ChildSummary
+from ..models import (
+    DailySummary,
+    ChildSummary,
+    BottleEvent,
+    FluidsEvent,
+    DiaperEvent,
+    NappingEvent,
+    EatingEvent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +172,6 @@ async def split_and_save_by_date(summary: DailySummary) -> dict[str, DailySummar
                     new_bottle_times = {b.time.isoformat() for b in new_child.bottles}
                     for b in existing_child.get("bottles", []):
                         if b["time"] not in new_bottle_times:
-                            from ..models import BottleEvent
                             new_child.bottles.append(BottleEvent(
                                 time=datetime.fromisoformat(b["time"]),
                                 milk_type=b.get("milk_type", "Unknown"),
@@ -176,7 +183,6 @@ async def split_and_save_by_date(summary: DailySummary) -> dict[str, DailySummar
                     new_fluid_times = {f.time.isoformat() for f in new_child.fluids}
                     for f in existing_child.get("fluids", []):
                         if f["time"] not in new_fluid_times:
-                            from ..models import FluidsEvent
                             new_child.fluids.append(FluidsEvent(
                                 time=datetime.fromisoformat(f["time"]),
                                 ounces=f.get("ounces", 0),
@@ -187,7 +193,6 @@ async def split_and_save_by_date(summary: DailySummary) -> dict[str, DailySummar
                     new_diaper_times = {d.time.isoformat() for d in new_child.diapers}
                     for d in existing_child.get("diapers", []):
                         if d["time"] not in new_diaper_times:
-                            from ..models import DiaperEvent
                             new_child.diapers.append(DiaperEvent(
                                 time=datetime.fromisoformat(d["time"]),
                                 diaper_type=d.get("type", "Unknown"),
@@ -198,7 +203,6 @@ async def split_and_save_by_date(summary: DailySummary) -> dict[str, DailySummar
                     new_nap_times = {n.start_time.isoformat() for n in new_child.naps}
                     for n in existing_child.get("naps", []):
                         if n["start"] not in new_nap_times:
-                            from ..models import NappingEvent
                             new_child.naps.append(NappingEvent(
                                 start_time=datetime.fromisoformat(n["start"]),
                                 end_time=datetime.fromisoformat(n["end"]) if n.get("end") else None,
@@ -209,7 +213,6 @@ async def split_and_save_by_date(summary: DailySummary) -> dict[str, DailySummar
                     new_meal_times = {m.time.isoformat() for m in new_child.meals}
                     for m in existing_child.get("meals", []):
                         if m["time"] not in new_meal_times:
-                            from ..models import EatingEvent
                             new_child.meals.append(EatingEvent(
                                 time=datetime.fromisoformat(m["time"]),
                                 meal_items=m.get("items", ""),
@@ -217,7 +220,6 @@ async def split_and_save_by_date(summary: DailySummary) -> dict[str, DailySummar
                             ))
                 else:
                     # Child exists in old data but not in new scrape - preserve entirely
-                    from ..models import ChildSummary, BottleEvent, FluidsEvent, DiaperEvent, NappingEvent, EatingEvent
                     preserved_child = ChildSummary(name=child_name)
                     if existing_child.get("sign_in"):
                         preserved_child.sign_in = datetime.fromisoformat(existing_child["sign_in"])
