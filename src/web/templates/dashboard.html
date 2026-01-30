@@ -158,7 +158,7 @@
                 {% if last_scrape %}
                 <div class="status-item">
                     <span class="status-dot {% if not last_scrape.success %}error{% endif %}"></span>
-                    Last scrape: {{ last_scrape.timestamp[:16].replace('T', ' ') }}
+                    Last scrape: {{ last_scrape.timestamp }}
                     {% if last_scrape.success %}({{ last_scrape.events_count }} events){% else %}(failed){% endif %}
                 </div>
                 {% endif %}

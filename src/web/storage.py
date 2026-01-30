@@ -2,14 +2,26 @@
 
 import json
 import logging
+import os
 from datetime import datetime, date
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 import aiosqlite
 
 from ..models import DailySummary
 
 logger = logging.getLogger(__name__)
+
+
+def _now() -> datetime:
+    """Get current time in configured timezone."""
+    tz_name = os.getenv("TZ", "UTC")
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo("UTC")
+    return datetime.now(tz)
 
 DB_PATH = Path("session_data/kidpulse.db")
 
@@ -42,7 +54,7 @@ async def init_db() -> None:
 async def save_summary(summary: DailySummary) -> None:
     """Save a daily summary to the database."""
     date_str = summary.date.strftime("%Y-%m-%d")
-    now = datetime.now().isoformat()
+    now = _now().strftime("%Y-%m-%d %H:%M:%S")
     data = json.dumps(summary.to_dict())
 
     async with aiosqlite.connect(DB_PATH) as db:
@@ -90,7 +102,7 @@ async def get_available_dates(limit: int = 30) -> list[str]:
 
 async def log_scrape(success: bool, message: str = None, events_count: int = 0) -> None:
     """Log a scrape attempt."""
-    now = datetime.now().isoformat()
+    now = _now().strftime("%Y-%m-%d %H:%M:%S")
 
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
