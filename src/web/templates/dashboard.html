@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>KidPulse Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
             --bg: #1a1a2e;
@@ -117,20 +118,36 @@
         .date-nav {
             display: flex;
             gap: 10px;
+            align-items: center;
             flex-wrap: wrap;
         }
-        .date-nav a {
+        .date-nav button {
             color: var(--text-muted);
-            text-decoration: none;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
             padding: 6px 12px;
             border-radius: 4px;
-            background: var(--card-bg);
             font-size: 0.85em;
+            cursor: pointer;
             transition: all 0.2s;
         }
-        .date-nav a:hover, .date-nav a.active {
+        .date-nav button:hover, .date-nav button.active {
             color: var(--accent);
             background: var(--border);
+            border-color: var(--accent);
+        }
+        .date-picker {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            cursor: pointer;
+        }
+        .date-picker::-webkit-calendar-picker-indicator {
+            filter: invert(1);
+            cursor: pointer;
         }
         .toast {
             position: fixed;
@@ -144,9 +161,65 @@
         }
         .toast.show { display: block; }
         .toast.error { border-color: var(--error); }
+        .trends-section {
+            margin-top: 30px;
+        }
+        .trends-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .trends-header h2 {
+            margin-bottom: 0;
+        }
+        .chart-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }
+        .chart-card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border);
+        }
+        .chart-card h3 {
+            margin-bottom: 15px;
+            color: var(--text);
+            text-transform: none;
+            letter-spacing: normal;
+        }
+        .chart-container {
+            position: relative;
+            height: 200px;
+        }
+        .child-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .child-tabs button {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.2s;
+        }
+        .child-tabs button:hover, .child-tabs button.active {
+            background: var(--border);
+            color: var(--accent);
+            border-color: var(--accent);
+        }
         @media (max-width: 600px) {
             header { flex-direction: column; align-items: flex-start; }
             .status-bar { flex-direction: column; gap: 8px; }
+            .chart-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -174,11 +247,9 @@
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
             <h2>{{ viewing_date if viewing_date else today }}</h2>
             <div class="date-nav">
-                {% for d in available_dates %}
-                <a href="/day/{{ d }}" {% if d == (viewing_date if viewing_date else today) %}class="active"{% endif %}>
-                    {{ d[5:] }}
-                </a>
-                {% endfor %}
+                <button onclick="goToDate('{{ today }}')" {% if (viewing_date if viewing_date else today) == today %}class="active"{% endif %}>Today</button>
+                <button onclick="goToDate('{{ yesterday }}')" {% if viewing_date == yesterday %}class="active"{% endif %}>Yesterday</button>
+                <input type="date" class="date-picker" id="datePicker" value="{{ viewing_date if viewing_date else today }}" onchange="goToDate(this.value)">
             </div>
         </div>
     </div>
@@ -300,6 +371,19 @@
     </div>
     {% endif %}
 
+    <!-- Trends Section -->
+    <div class="trends-section">
+        <div class="trends-header">
+            <h2>Trends (Last 14 Days)</h2>
+        </div>
+        <div class="child-tabs" id="childTabs">
+            <!-- Child tabs will be populated by JavaScript -->
+        </div>
+        <div class="chart-grid" id="chartsContainer">
+            <!-- Charts will be populated by JavaScript -->
+        </div>
+    </div>
+
     <div class="toast" id="toast"></div>
 
     <script>
@@ -333,6 +417,268 @@
             toast.className = 'toast show' + (isError ? ' error' : '');
             setTimeout(() => toast.className = 'toast', 5000);
         }
+
+        function goToDate(dateStr) {
+            if (dateStr) {
+                window.location.href = '/day/' + dateStr;
+            }
+        }
+
+        // Chart colors
+        const chartColors = {
+            accent: '#4ecca3',
+            accentLight: 'rgba(78, 204, 163, 0.2)',
+            blue: '#5dade2',
+            blueLight: 'rgba(93, 173, 226, 0.2)',
+            brown: '#a67c52',
+            brownLight: 'rgba(166, 124, 82, 0.2)',
+            text: '#eee',
+            textMuted: '#888',
+            grid: '#2a2a4a'
+        };
+
+        // Chart.js defaults for dark theme
+        Chart.defaults.color = chartColors.textMuted;
+        Chart.defaults.borderColor = chartColors.grid;
+
+        let charts = {};
+        let currentChild = null;
+
+        async function loadChildren() {
+            try {
+                const res = await fetch('/api/children');
+                const data = await res.json();
+                const children = data.children || [];
+
+                const tabsContainer = document.getElementById('childTabs');
+                tabsContainer.innerHTML = '';
+
+                children.forEach((name, index) => {
+                    const btn = document.createElement('button');
+                    btn.textContent = name.split(' ')[0]; // First name only
+                    btn.onclick = () => selectChild(name);
+                    if (index === 0) {
+                        btn.classList.add('active');
+                        currentChild = name;
+                    }
+                    tabsContainer.appendChild(btn);
+                });
+
+                if (children.length > 0) {
+                    loadChildStats(children[0]);
+                }
+            } catch (e) {
+                console.error('Failed to load children:', e);
+            }
+        }
+
+        function selectChild(name) {
+            currentChild = name;
+
+            // Update active tab
+            document.querySelectorAll('.child-tabs button').forEach(btn => {
+                btn.classList.toggle('active', btn.textContent === name.split(' ')[0]);
+            });
+
+            loadChildStats(name);
+        }
+
+        async function loadChildStats(childName) {
+            try {
+                const res = await fetch(`/api/stats/${encodeURIComponent(childName)}?days=14`);
+                const data = await res.json();
+                renderCharts(childName, data.days || []);
+            } catch (e) {
+                console.error('Failed to load stats:', e);
+            }
+        }
+
+        function renderCharts(childName, stats) {
+            // Destroy existing charts
+            Object.values(charts).forEach(chart => chart.destroy());
+            charts = {};
+
+            const container = document.getElementById('chartsContainer');
+            const firstName = childName.split(' ')[0].toLowerCase();
+
+            // Determine which charts to show based on child
+            const labels = stats.map(s => s.date.slice(5)); // MM-DD format
+
+            // Common chart options
+            const commonOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: {
+                        grid: { color: chartColors.grid }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: chartColors.grid }
+                    }
+                }
+            };
+
+            let chartsHtml = '';
+
+            // Nap Duration Chart (for all children)
+            chartsHtml += `
+                <div class="chart-card">
+                    <h3>😴 Nap Duration (minutes)</h3>
+                    <div class="chart-container">
+                        <canvas id="napChart"></canvas>
+                    </div>
+                </div>
+            `;
+
+            // Diaper Chart (mainly for infants like Ezra)
+            if (firstName === 'ezra' || stats.some(s => s.wet_diapers > 0 || s.bm_diapers > 0)) {
+                chartsHtml += `
+                    <div class="chart-card">
+                        <h3>👶 Diapers</h3>
+                        <div class="chart-container">
+                            <canvas id="diaperChart"></canvas>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Bottles/Fluids Chart (mainly for infants like Ezra)
+            if (firstName === 'ezra' || stats.some(s => s.bottle_oz > 0 || s.fluids_oz > 0)) {
+                chartsHtml += `
+                    <div class="chart-card">
+                        <h3>🍼 Bottles & Fluids (oz)</h3>
+                        <div class="chart-container">
+                            <canvas id="bottleChart"></canvas>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Meals Chart (mainly for older kids like Killian)
+            if (firstName === 'killian' || stats.some(s => s.meals_count > 0)) {
+                chartsHtml += `
+                    <div class="chart-card">
+                        <h3>🍴 Meals per Day</h3>
+                        <div class="chart-container">
+                            <canvas id="mealsChart"></canvas>
+                        </div>
+                    </div>
+                `;
+            }
+
+            container.innerHTML = chartsHtml;
+
+            // Create Nap Chart
+            const napCtx = document.getElementById('napChart');
+            if (napCtx) {
+                charts.nap = new Chart(napCtx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Nap Minutes',
+                            data: stats.map(s => s.nap_minutes),
+                            borderColor: chartColors.accent,
+                            backgroundColor: chartColors.accentLight,
+                            fill: true,
+                            tension: 0.3
+                        }]
+                    },
+                    options: commonOptions
+                });
+            }
+
+            // Create Diaper Chart
+            const diaperCtx = document.getElementById('diaperChart');
+            if (diaperCtx) {
+                charts.diaper = new Chart(diaperCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Wet',
+                                data: stats.map(s => s.wet_diapers),
+                                backgroundColor: chartColors.blue
+                            },
+                            {
+                                label: 'BM',
+                                data: stats.map(s => s.bm_diapers),
+                                backgroundColor: chartColors.brown
+                            }
+                        ]
+                    },
+                    options: {
+                        ...commonOptions,
+                        plugins: {
+                            legend: { display: true, position: 'top' }
+                        },
+                        scales: {
+                            ...commonOptions.scales,
+                            x: { ...commonOptions.scales.x, stacked: true },
+                            y: { ...commonOptions.scales.y, stacked: true }
+                        }
+                    }
+                });
+            }
+
+            // Create Bottles/Fluids Chart
+            const bottleCtx = document.getElementById('bottleChart');
+            if (bottleCtx) {
+                charts.bottle = new Chart(bottleCtx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Bottles',
+                                data: stats.map(s => s.bottle_oz),
+                                borderColor: chartColors.accent,
+                                backgroundColor: 'transparent',
+                                tension: 0.3
+                            },
+                            {
+                                label: 'Fluids',
+                                data: stats.map(s => s.fluids_oz),
+                                borderColor: chartColors.blue,
+                                backgroundColor: 'transparent',
+                                tension: 0.3
+                            }
+                        ]
+                    },
+                    options: {
+                        ...commonOptions,
+                        plugins: {
+                            legend: { display: true, position: 'top' }
+                        }
+                    }
+                });
+            }
+
+            // Create Meals Chart
+            const mealsCtx = document.getElementById('mealsChart');
+            if (mealsCtx) {
+                charts.meals = new Chart(mealsCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Meals',
+                            data: stats.map(s => s.meals_count),
+                            backgroundColor: chartColors.accent
+                        }]
+                    },
+                    options: commonOptions
+                });
+            }
+        }
+
+        // Load charts on page load
+        document.addEventListener('DOMContentLoaded', loadChildren);
     </script>
 </body>
 </html>

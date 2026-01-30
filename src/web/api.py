@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -99,6 +99,20 @@ async def get_scrape_log(limit: int = 20):
     return {"history": history}
 
 
+@app.get("/api/children")
+async def get_children():
+    """Get list of all children."""
+    children = await storage.get_all_children()
+    return {"children": children}
+
+
+@app.get("/api/stats/{child_name}")
+async def get_child_stats(child_name: str, days: int = 14):
+    """Get historical stats for a child for charting."""
+    stats = await storage.get_child_stats(child_name, days)
+    return {"child": child_name, "days": stats}
+
+
 @app.post("/api/scrape")
 async def trigger_scrape(background_tasks: BackgroundTasks, notify: bool = True):
     """Manually trigger a scrape."""
@@ -156,18 +170,18 @@ async def run_scrape(notify: bool = True) -> None:
 async def dashboard(request: Request):
     """Main dashboard page."""
     today = date.today()
+    yesterday = today - timedelta(days=1)
     summary = await storage.get_summary(today)
     last_scrape = await storage.get_last_scrape()
-    available_dates = await storage.get_available_dates(7)
 
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "today": today.isoformat(),
+        "yesterday": yesterday.isoformat(),
         "summary": summary["data"] if summary else None,
         "updated_at": summary["updated_at"] if summary else None,
         "last_scrape": last_scrape,
         "next_scheduled": _next_scrape_time,
-        "available_dates": available_dates,
         "config": _config,
     })
 
@@ -180,18 +194,19 @@ async def day_view(request: Request, date_str: str):
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format")
 
+    today = date.today()
+    yesterday = today - timedelta(days=1)
     summary = await storage.get_summary(date_obj)
     last_scrape = await storage.get_last_scrape()
-    available_dates = await storage.get_available_dates(7)
 
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
-        "today": date_str,
+        "today": today.isoformat(),
+        "yesterday": yesterday.isoformat(),
         "summary": summary["data"] if summary else None,
         "updated_at": summary["updated_at"] if summary else None,
         "last_scrape": last_scrape,
         "next_scheduled": _next_scrape_time,
-        "available_dates": available_dates,
         "config": _config,
         "viewing_date": date_str,
     })

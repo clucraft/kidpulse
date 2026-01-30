@@ -135,3 +135,70 @@ async def get_scrape_history(limit: int = 20) -> list[dict]:
         ) as cursor:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
+
+
+async def get_child_stats(child_name: str, days: int = 14) -> list[dict]:
+    """Get historical stats for a child for charting.
+
+    Returns daily aggregated stats for the specified number of days.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT date, data FROM summaries ORDER BY date DESC LIMIT ?",
+            (days,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+    stats = []
+    first_name = child_name.split()[0].lower()
+
+    for row in rows:
+        date_str = row[0]
+        data = json.loads(row[1])
+
+        # Find this child's data
+        child_data = None
+        for name, child in data.get("children", {}).items():
+            if name.split()[0].lower() == first_name:
+                child_data = child
+                break
+
+        if child_data:
+            totals = child_data.get("totals", {})
+            stats.append({
+                "date": date_str,
+                "nap_minutes": totals.get("nap_minutes", 0) or 0,
+                "wet_diapers": totals.get("wet_diapers", 0) or 0,
+                "bm_diapers": totals.get("bm_diapers", 0) or 0,
+                "bottle_oz": totals.get("bottle_oz", 0) or 0,
+                "fluids_oz": totals.get("fluids_oz", 0) or 0,
+                "meals_count": totals.get("meals_count", 0) or 0,
+            })
+        else:
+            # No data for this child on this date
+            stats.append({
+                "date": date_str,
+                "nap_minutes": 0,
+                "wet_diapers": 0,
+                "bm_diapers": 0,
+                "bottle_oz": 0,
+                "fluids_oz": 0,
+                "meals_count": 0,
+            })
+
+    # Reverse to get chronological order (oldest first)
+    stats.reverse()
+    return stats
+
+
+async def get_all_children() -> list[str]:
+    """Get list of all child names from the database."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT data FROM summaries ORDER BY date DESC LIMIT 1"
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                data = json.loads(row[0])
+                return list(data.get("children", {}).keys())
+    return []
