@@ -114,8 +114,8 @@ async def get_child_stats(child_name: str, days: int = 14):
 
 
 @app.post("/api/scrape")
-async def trigger_scrape(background_tasks: BackgroundTasks, notify: bool = True):
-    """Manually trigger a scrape."""
+async def trigger_scrape(background_tasks: BackgroundTasks, notify: bool = False):
+    """Manually trigger a scrape. Notifications disabled by default for manual scrapes."""
     if _scrape_lock.locked():
         raise HTTPException(status_code=409, detail="Scrape already in progress")
 
