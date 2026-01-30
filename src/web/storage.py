@@ -145,18 +145,116 @@ async def split_and_save_by_date(summary: DailySummary) -> dict[str, DailySummar
         daily_summary = DailySummary(date=date_obj)
         daily_summary.children = children
 
-        # Merge with existing data for this date (don't overwrite)
+        # Merge with existing data for this date (don't overwrite - combine events)
         existing = await get_summary(date_obj.date())
         if existing and existing.get("data"):
             existing_data = existing["data"]
             for child_name, existing_child in existing_data.get("children", {}).items():
                 if child_name in daily_summary.children:
-                    # Merge: keep existing sign_in/out if new ones are missing
+                    # Merge: combine existing events with new events
                     new_child = daily_summary.children[child_name]
+
+                    # Keep existing sign_in/out if new ones are missing
                     if not new_child.sign_in and existing_child.get("sign_in"):
                         new_child.sign_in = datetime.fromisoformat(existing_child["sign_in"])
                     if not new_child.sign_out and existing_child.get("sign_out"):
                         new_child.sign_out = datetime.fromisoformat(existing_child["sign_out"])
+
+                    # Merge bottles - add existing ones not in new scrape (by timestamp)
+                    new_bottle_times = {b.time.isoformat() for b in new_child.bottles}
+                    for b in existing_child.get("bottles", []):
+                        if b["time"] not in new_bottle_times:
+                            from ..models import BottleEvent
+                            new_child.bottles.append(BottleEvent(
+                                time=datetime.fromisoformat(b["time"]),
+                                milk_type=b.get("milk_type", "Unknown"),
+                                ounces_offered=b.get("offered", 0),
+                                ounces_consumed=b.get("consumed", 0),
+                            ))
+
+                    # Merge fluids
+                    new_fluid_times = {f.time.isoformat() for f in new_child.fluids}
+                    for f in existing_child.get("fluids", []):
+                        if f["time"] not in new_fluid_times:
+                            from ..models import FluidsEvent
+                            new_child.fluids.append(FluidsEvent(
+                                time=datetime.fromisoformat(f["time"]),
+                                ounces=f.get("ounces", 0),
+                                meal_type=f.get("meal"),
+                            ))
+
+                    # Merge diapers
+                    new_diaper_times = {d.time.isoformat() for d in new_child.diapers}
+                    for d in existing_child.get("diapers", []):
+                        if d["time"] not in new_diaper_times:
+                            from ..models import DiaperEvent
+                            new_child.diapers.append(DiaperEvent(
+                                time=datetime.fromisoformat(d["time"]),
+                                diaper_type=d.get("type", "Unknown"),
+                                notes=d.get("notes"),
+                            ))
+
+                    # Merge naps
+                    new_nap_times = {n.start_time.isoformat() for n in new_child.naps}
+                    for n in existing_child.get("naps", []):
+                        if n["start"] not in new_nap_times:
+                            from ..models import NappingEvent
+                            new_child.naps.append(NappingEvent(
+                                start_time=datetime.fromisoformat(n["start"]),
+                                end_time=datetime.fromisoformat(n["end"]) if n.get("end") else None,
+                                position=n.get("position"),
+                            ))
+
+                    # Merge meals
+                    new_meal_times = {m.time.isoformat() for m in new_child.meals}
+                    for m in existing_child.get("meals", []):
+                        if m["time"] not in new_meal_times:
+                            from ..models import EatingEvent
+                            new_child.meals.append(EatingEvent(
+                                time=datetime.fromisoformat(m["time"]),
+                                meal_items=m.get("items", ""),
+                                meal_type=m.get("type"),
+                            ))
+                else:
+                    # Child exists in old data but not in new scrape - preserve entirely
+                    from ..models import ChildSummary, BottleEvent, FluidsEvent, DiaperEvent, NappingEvent, EatingEvent
+                    preserved_child = ChildSummary(name=child_name)
+                    if existing_child.get("sign_in"):
+                        preserved_child.sign_in = datetime.fromisoformat(existing_child["sign_in"])
+                    if existing_child.get("sign_out"):
+                        preserved_child.sign_out = datetime.fromisoformat(existing_child["sign_out"])
+                    for b in existing_child.get("bottles", []):
+                        preserved_child.bottles.append(BottleEvent(
+                            time=datetime.fromisoformat(b["time"]),
+                            milk_type=b.get("milk_type", "Unknown"),
+                            ounces_offered=b.get("offered", 0),
+                            ounces_consumed=b.get("consumed", 0),
+                        ))
+                    for f in existing_child.get("fluids", []):
+                        preserved_child.fluids.append(FluidsEvent(
+                            time=datetime.fromisoformat(f["time"]),
+                            ounces=f.get("ounces", 0),
+                            meal_type=f.get("meal"),
+                        ))
+                    for d in existing_child.get("diapers", []):
+                        preserved_child.diapers.append(DiaperEvent(
+                            time=datetime.fromisoformat(d["time"]),
+                            diaper_type=d.get("type", "Unknown"),
+                            notes=d.get("notes"),
+                        ))
+                    for n in existing_child.get("naps", []):
+                        preserved_child.naps.append(NappingEvent(
+                            start_time=datetime.fromisoformat(n["start"]),
+                            end_time=datetime.fromisoformat(n["end"]) if n.get("end") else None,
+                            position=n.get("position"),
+                        ))
+                    for m in existing_child.get("meals", []):
+                        preserved_child.meals.append(EatingEvent(
+                            time=datetime.fromisoformat(m["time"]),
+                            meal_items=m.get("items", ""),
+                            meal_type=m.get("type"),
+                        ))
+                    daily_summary.children[child_name] = preserved_child
 
         await save_summary(daily_summary)
         result[date_str] = daily_summary

@@ -275,11 +275,40 @@ class PlaygroundScraper:
             logger.warning(f"Could not select tab for {child_name}: {e}")
             return False
 
+    async def _scroll_to_load_all_content(self, max_scrolls: int = 2) -> None:
+        """Scroll down to trigger lazy loading of feed content.
+
+        Args:
+            max_scrolls: Maximum number of viewport-height scrolls (default 2 pages)
+        """
+        try:
+            viewport_height = await self.page.evaluate("window.innerHeight")
+
+            for i in range(max_scrolls):
+                # Scroll down one viewport height
+                await self.page.evaluate(f"window.scrollBy(0, {viewport_height})")
+                logger.info(f"Scrolled down page {i + 1}/{max_scrolls}")
+
+                # Wait for content to load
+                await asyncio.sleep(2)
+
+            # Scroll back to top so we capture everything from the beginning
+            await self.page.evaluate("window.scrollTo(0, 0)")
+            await asyncio.sleep(1)
+
+            logger.info("Finished scrolling to load content")
+
+        except Exception as e:
+            logger.warning(f"Error during scroll: {e}")
+
     async def _scrape_child_feed(self, child_name: str, date: datetime) -> ChildSummary:
         """Scrape the feed for a single child."""
         child = ChildSummary(name=child_name)
         today_str = date.strftime("%b %d, %Y")
         today_short = date.strftime("%b %d")
+
+        # Scroll down to load all lazy-loaded content
+        await self._scroll_to_load_all_content()
 
         # Take a debug screenshot of the feed for this child
         safe_name = child_name.replace(" ", "_").lower()
