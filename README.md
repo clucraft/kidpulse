@@ -108,6 +108,7 @@ Access the dashboard at `http://localhost:8080`
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token | Required if enabled |
 | `TELEGRAM_CHAT_ID` | Telegram chat ID | Required if enabled |
 | `SUMMARY_TIME` | Time to send daily summary (24h format) | `17:00` |
+| `SCRAPE_INTERVAL` | Minutes between scrapes (0 to disable) | `30` |
 | `TZ` | Timezone (e.g., `America/Indiana/Indianapolis`) | `America/New_York` |
 | `RUN_ON_STARTUP` | Run scrape immediately on start | `false` |
 | `DEBUG` | Enable debug logging | `false` |

@@ -38,28 +38,36 @@ def signal_handler(signum, frame):
     shutdown_requested = True
 
 
-async def run_scheduled_scrape(config: Config) -> None:
+async def run_scheduled_scrape(config: Config, notify: bool = True) -> None:
     """Run the scheduled scrape task."""
-    logger.info("Running scheduled scrape...")
-    await run_scrape(notify=True)
+    logger.info(f"Running scheduled scrape (notify={notify})...")
+    await run_scrape(notify=notify)
 
 
 async def scheduler_loop(config: Config) -> None:
     """Run the scheduler loop."""
     global shutdown_requested
 
-    # Schedule daily summary
+    # Schedule daily summary (with notifications)
     schedule.every().day.at(config.summary_time).do(
-        lambda: asyncio.create_task(run_scheduled_scrape(config))
+        lambda: asyncio.create_task(run_scheduled_scrape(config, notify=True))
     )
-    set_next_scrape_time(config.summary_time)
 
-    logger.info(f"Scheduler started. Daily summary at {config.summary_time}")
+    # Schedule interval scrapes (silent - no notifications)
+    if config.scrape_interval > 0:
+        schedule.every(config.scrape_interval).minutes.do(
+            lambda: asyncio.create_task(run_scheduled_scrape(config, notify=False))
+        )
+        logger.info(f"Scheduler started. Scraping every {config.scrape_interval} minutes, daily summary at {config.summary_time}")
+        set_next_scrape_time(f"Every {config.scrape_interval}min, summary at {config.summary_time}")
+    else:
+        logger.info(f"Scheduler started. Daily summary at {config.summary_time} (interval scraping disabled)")
+        set_next_scrape_time(config.summary_time)
 
     # Run immediately on startup if requested
     if os.getenv("RUN_ON_STARTUP", "false").lower() == "true":
         logger.info("Running initial scrape on startup...")
-        await run_scrape(notify=True)
+        await run_scrape(notify=False)
 
     # Main scheduler loop
     while not shutdown_requested:
@@ -85,6 +93,7 @@ async def main() -> None:
 
     logger.info("KidPulse starting up...")
     logger.info(f"Summary time: {config.summary_time}")
+    logger.info(f"Scrape interval: {config.scrape_interval} minutes" if config.scrape_interval > 0 else "Scrape interval: disabled")
     logger.info(f"NTFY enabled: {config.ntfy.enabled}")
     logger.info(f"Telegram enabled: {config.telegram.enabled}")
 
@@ -115,8 +124,9 @@ async def main() -> None:
     telegram = TelegramNotifier(config.telegram) if config.telegram.enabled else None
     notification_manager = NotificationManager(ntfy=ntfy, telegram=telegram)
 
+    interval_msg = f"Scraping every {config.scrape_interval} min\n" if config.scrape_interval > 0 else ""
     await notification_manager.send_raw(
-        f"KidPulse started.\nDaily summary at {config.summary_time}\nWeb UI: http://localhost:{web_port}",
+        f"KidPulse started.\n{interval_msg}Daily summary at {config.summary_time}\nWeb UI: http://localhost:{web_port}",
         title="KidPulse Started"
     )
 
