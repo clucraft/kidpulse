@@ -98,8 +98,8 @@ async def main() -> None:
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 
-    # Get web port from environment
-    web_port = int(os.getenv("WEB_PORT", "8080"))
+    # Always use port 8080 inside container (WEB_PORT only controls host mapping)
+    web_port = 8080
 
     # Create uvicorn server
     uvicorn_config = uvicorn.Config(
