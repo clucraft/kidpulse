@@ -370,6 +370,15 @@ class PlaygroundScraper:
     def _parse_feed_item_sync(self, text: str, child: ChildSummary, date: datetime) -> None:
         """Synchronous version of feed item parsing."""
         text_lower = text.lower()
+        child_name_lower = child.name.lower()
+
+        # Skip events that explicitly mention a DIFFERENT child's name
+        name_patterns = re.findall(r'(?:Sign (?:In|Out)|Recorded by)[^·]*·\s*([A-Z][a-z]+\s+[A-Z][a-z]+)', text)
+        if name_patterns:
+            for found_name in name_patterns:
+                if found_name.lower() != child_name_lower:
+                    logger.debug(f"Skipping event for {found_name}, not {child.name}")
+                    return
 
         # Extract timestamp
         timestamp = self._extract_timestamp(text, date)
@@ -410,6 +419,18 @@ class PlaygroundScraper:
     async def _parse_feed_item(self, text: str, child: ChildSummary, date: datetime) -> None:
         """Parse a single feed item and add to child summary."""
         text_lower = text.lower()
+        child_name_lower = child.name.lower()
+
+        # Skip events that explicitly mention a DIFFERENT child's name
+        # Look for patterns like "Sign Out · Other Child" or "Other Child" in event headers
+        # But allow if it contains THIS child's name or no specific child name
+        name_patterns = re.findall(r'(?:Sign (?:In|Out)|Recorded by)[^·]*·\s*([A-Z][a-z]+\s+[A-Z][a-z]+)', text)
+        if name_patterns:
+            # If we found a name pattern and it's not this child, skip
+            for found_name in name_patterns:
+                if found_name.lower() != child_name_lower:
+                    logger.debug(f"Skipping event for {found_name}, not {child.name}")
+                    return
 
         # Extract timestamp from text
         timestamp = self._extract_timestamp(text, date)
