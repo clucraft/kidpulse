@@ -86,6 +86,29 @@ async def save_summary(summary: DailySummary) -> None:
     logger.info(f"Saved summary for {date_str}")
 
 
+async def delete_summary(target_date: date) -> bool:
+    """Delete a daily summary from the database.
+
+    Returns True if a record was deleted, False if no record existed.
+    """
+    date_str = target_date.strftime("%Y-%m-%d")
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "DELETE FROM summaries WHERE date = ?",
+            (date_str,)
+        )
+        await db.commit()
+        deleted = cursor.rowcount > 0
+
+    if deleted:
+        logger.info(f"Deleted summary for {date_str}")
+    else:
+        logger.info(f"No summary to delete for {date_str}")
+
+    return deleted
+
+
 async def split_and_save_by_date(summary: DailySummary) -> dict[str, DailySummary]:
     """Split a summary by event dates and save separate summaries for each date.
 

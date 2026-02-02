@@ -275,6 +275,7 @@
             {% if config and config.auth and config.auth.enabled %}
             <button class="btn btn-secondary" onclick="createShareLink()" id="shareBtn">Share Link</button>
             {% endif %}
+            <button class="btn btn-secondary" onclick="clearDayData()" id="clearBtn" style="color: var(--error);">Clear Data</button>
             {% if user %}
             <a href="/logout" style="color: var(--text-muted); font-size: 0.85em; text-decoration: none;">Logout</a>
             {% endif %}
@@ -820,6 +821,38 @@
             } finally {
                 btn.disabled = false;
                 btn.textContent = 'Share Link';
+            }
+        }
+
+        async function clearDayData() {
+            const currentDate = document.getElementById('datePicker').value;
+            const dateDisplay = new Date(currentDate + 'T00:00:00').toLocaleDateString('en-US', {
+                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+            });
+
+            if (!confirm(`Are you sure you want to clear all data for ${dateDisplay}?\n\nThis cannot be undone.`)) {
+                return;
+            }
+
+            const btn = document.getElementById('clearBtn');
+            btn.disabled = true;
+            btn.textContent = 'Clearing...';
+
+            try {
+                const res = await fetch(`/api/day/${currentDate}`, { method: 'DELETE' });
+                const data = await res.json();
+
+                if (res.ok) {
+                    showToast('Data cleared! Refreshing...', false);
+                    setTimeout(() => window.location.reload(), 1000);
+                } else {
+                    showToast(data.detail || 'Failed to clear data', true);
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, true);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Clear Data';
             }
         }
 

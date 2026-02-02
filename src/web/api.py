@@ -227,6 +227,21 @@ async def get_summary_by_date(date_str: str, request: Request, user: str = Depen
     return {"date": date_str, **result}
 
 
+@app.delete("/api/day/{date_str}")
+async def delete_day_data(date_str: str, request: Request, user: str = Depends(require_auth)):
+    """Delete all data for a specific date."""
+    try:
+        target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+    deleted = await storage.delete_summary(target_date)
+    if deleted:
+        return {"message": f"Data for {date_str} deleted", "date": date_str}
+    else:
+        raise HTTPException(status_code=404, detail=f"No data found for {date_str}")
+
+
 @app.get("/api/history")
 async def get_history(request: Request, user: str = Depends(require_auth), limit: int = 30):
     """Get list of available dates with data."""
