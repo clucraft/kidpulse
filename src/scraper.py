@@ -473,32 +473,47 @@ class PlaygroundScraper:
         elif "diaper" in text_lower:
             diaper = self._parse_diaper(text, timestamp)
             if diaper:
-                child.diapers.append(diaper)
-                logger.info(f"Parsed diaper: {diaper.diaper_type} at {timestamp}")
+                # Deduplicate by timestamp
+                existing_times = {d.time for d in child.diapers}
+                if diaper.time not in existing_times:
+                    child.diapers.append(diaper)
+                    logger.info(f"Parsed diaper: {diaper.diaper_type} at {timestamp}")
 
         elif "bottle" in text_lower:
             bottle = self._parse_bottle(text, timestamp)
             if bottle:
-                child.bottles.append(bottle)
-                logger.info(f"Parsed bottle: {bottle.ounces_consumed}oz at {timestamp}")
+                # Deduplicate by timestamp
+                existing_times = {b.time for b in child.bottles}
+                if bottle.time not in existing_times:
+                    child.bottles.append(bottle)
+                    logger.info(f"Parsed bottle: {bottle.ounces_consumed}oz at {timestamp}")
 
         elif "fluids" in text_lower:
             fluids = self._parse_fluids(text, timestamp)
             if fluids:
-                child.fluids.append(fluids)
-                logger.info(f"Parsed fluids: {fluids.ounces}oz at {timestamp}")
+                # Deduplicate by timestamp
+                existing_times = {f.time for f in child.fluids}
+                if fluids.time not in existing_times:
+                    child.fluids.append(fluids)
+                    logger.info(f"Parsed fluids: {fluids.ounces}oz at {timestamp}")
 
         elif "napping" in text_lower or "nap" in text_lower:
             nap = self._parse_napping(text, date)
             if nap:
-                child.naps.append(nap)
-                logger.info(f"Parsed nap: {nap.start_time} - {nap.end_time}")
+                # Deduplicate by start time
+                existing_times = {n.start_time for n in child.naps}
+                if nap.start_time not in existing_times:
+                    child.naps.append(nap)
+                    logger.info(f"Parsed nap: {nap.start_time} - {nap.end_time}")
 
         elif "eating" in text_lower:
             meal = self._parse_eating(text, timestamp)
             if meal:
-                child.meals.append(meal)
-                logger.info(f"Parsed meal: {meal.meal_items[:50]}... at {timestamp}")
+                # Deduplicate by timestamp
+                existing_times = {m.time for m in child.meals}
+                if meal.time not in existing_times:
+                    child.meals.append(meal)
+                    logger.info(f"Parsed meal: {meal.meal_items[:50]}... at {timestamp}")
 
     async def _parse_feed_item(self, text: str, child: ChildSummary, date: datetime) -> None:
         """Parse a single feed item and add to child summary."""
@@ -578,32 +593,47 @@ class PlaygroundScraper:
         elif "diaper" in text_lower:
             diaper = self._parse_diaper(text, timestamp)
             if diaper:
-                child.diapers.append(diaper)
-                logger.info(f"Parsed diaper: {diaper.diaper_type} at {timestamp}")
+                # Deduplicate by timestamp
+                existing_times = {d.time for d in child.diapers}
+                if diaper.time not in existing_times:
+                    child.diapers.append(diaper)
+                    logger.info(f"Parsed diaper: {diaper.diaper_type} at {timestamp}")
 
         elif "bottle" in text_lower:
             bottle = self._parse_bottle(text, timestamp)
             if bottle:
-                child.bottles.append(bottle)
-                logger.info(f"Parsed bottle: {bottle.ounces_consumed}oz {bottle.milk_type} at {timestamp}")
+                # Deduplicate by timestamp
+                existing_times = {b.time for b in child.bottles}
+                if bottle.time not in existing_times:
+                    child.bottles.append(bottle)
+                    logger.info(f"Parsed bottle: {bottle.ounces_consumed}oz {bottle.milk_type} at {timestamp}")
 
         elif "fluids" in text_lower:
             fluids = self._parse_fluids(text, timestamp)
             if fluids:
-                child.fluids.append(fluids)
-                logger.info(f"Parsed fluids: {fluids.ounces}oz at {timestamp}")
+                # Deduplicate by timestamp
+                existing_times = {f.time for f in child.fluids}
+                if fluids.time not in existing_times:
+                    child.fluids.append(fluids)
+                    logger.info(f"Parsed fluids: {fluids.ounces}oz at {timestamp}")
 
         elif "nap" in text_lower:
             nap = self._parse_napping(text, date)
             if nap:
-                child.naps.append(nap)
-                logger.info(f"Parsed nap: {nap.start_time} - {nap.end_time}")
+                # Deduplicate by start time
+                existing_times = {n.start_time for n in child.naps}
+                if nap.start_time not in existing_times:
+                    child.naps.append(nap)
+                    logger.info(f"Parsed nap: {nap.start_time} - {nap.end_time}")
 
         elif "eating" in text_lower:
             meal = self._parse_eating(text, timestamp)
             if meal:
-                child.meals.append(meal)
-                logger.info(f"Parsed meal: {meal.meal_items[:50]}... at {timestamp}")
+                # Deduplicate by timestamp
+                existing_times = {m.time for m in child.meals}
+                if meal.time not in existing_times:
+                    child.meals.append(meal)
+                    logger.info(f"Parsed meal: {meal.meal_items[:50]}... at {timestamp}")
 
     def _parse_eating(self, text: str, timestamp: datetime) -> Optional[EatingEvent]:
         """Parse eating/meal event from text."""
