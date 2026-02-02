@@ -357,6 +357,12 @@ class PlaygroundScraper:
                 if not text.strip():
                     continue
 
+                # Skip text blocks that are too large - they're parent containers, not individual events
+                # Real event cards are typically under 300 chars
+                if len(text) > 500:
+                    logger.debug(f"Skipping oversized text block ({len(text)} chars)")
+                    continue
+
                 if len(text) > 50:
                     logger.debug(f"Feed item text: {text[:100]}...")
 
@@ -471,10 +477,6 @@ class PlaygroundScraper:
                 logger.info(f"Parsed sign in: {sign_in_time}")
 
         elif "diaper" in text_lower:
-            # Debug: log the raw text being parsed as diaper
-            logger.info(f"DIAPER CANDIDATE - timestamp={timestamp}, text_length={len(text)}")
-            logger.info(f"  TEXT START: {text[:300]}")
-            logger.info(f"  TEXT END: {text[-200:]}")
             diaper = self._parse_diaper(text, timestamp)
             if diaper:
                 # Deduplicate by timestamp
@@ -595,10 +597,6 @@ class PlaygroundScraper:
                 logger.info(f"Parsed sign in: {sign_in_time}")
 
         elif "diaper" in text_lower:
-            # Debug: log the raw text being parsed as diaper
-            logger.info(f"DIAPER CANDIDATE - timestamp={timestamp}, text_length={len(text)}")
-            logger.info(f"  TEXT START: {text[:300]}")
-            logger.info(f"  TEXT END: {text[-200:]}")
             diaper = self._parse_diaper(text, timestamp)
             if diaper:
                 # Deduplicate by timestamp
