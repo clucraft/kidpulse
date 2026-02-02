@@ -471,6 +471,10 @@ class PlaygroundScraper:
                 logger.info(f"Parsed sign in: {sign_in_time}")
 
         elif "diaper" in text_lower:
+            # Debug: log the raw text being parsed as diaper
+            logger.info(f"DIAPER CANDIDATE - timestamp={timestamp}, text_length={len(text)}")
+            logger.info(f"  TEXT START: {text[:300]}")
+            logger.info(f"  TEXT END: {text[-200:]}")
             diaper = self._parse_diaper(text, timestamp)
             if diaper:
                 # Deduplicate by timestamp
@@ -591,6 +595,10 @@ class PlaygroundScraper:
                 logger.info(f"Parsed sign in: {sign_in_time}")
 
         elif "diaper" in text_lower:
+            # Debug: log the raw text being parsed as diaper
+            logger.info(f"DIAPER CANDIDATE - timestamp={timestamp}, text_length={len(text)}")
+            logger.info(f"  TEXT START: {text[:300]}")
+            logger.info(f"  TEXT END: {text[-200:]}")
             diaper = self._parse_diaper(text, timestamp)
             if diaper:
                 # Deduplicate by timestamp
