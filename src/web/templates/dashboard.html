@@ -293,6 +293,7 @@
                         {% endfor %}
                     {% endif %}
                 </select>
+                <button class="btn btn-sm btn-secondary" onclick="exportCSV()">Export CSV</button>
             </div>
             <div class="date-nav">
                 <button onclick="goToDate('{{ today }}')" {% if (viewing_date if viewing_date else today) == today %}class="active"{% endif %}>Today</button>
@@ -854,6 +855,16 @@
                 btn.disabled = false;
                 btn.textContent = 'Clear Data';
             }
+        }
+
+        function exportCSV() {
+            const childName = document.getElementById('childSelect').value;
+            if (!childName) {
+                showToast('No child selected', true);
+                return;
+            }
+            // Trigger download by navigating to the export endpoint
+            window.location.href = `/api/export/${encodeURIComponent(childName)}?days=30`;
         }
 
         // Initialize on page load

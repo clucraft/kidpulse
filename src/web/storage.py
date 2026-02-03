@@ -422,6 +422,153 @@ async def get_all_children() -> list[str]:
     return []
 
 
+async def get_child_events_for_export(child_name: str, days: int = 30) -> list[dict]:
+    """Get all events for a child as a flat list for CSV export.
+
+    Returns events sorted by date/time, newest first.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT date, data FROM summaries ORDER BY date DESC LIMIT ?",
+            (days,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+    events = []
+    first_name = child_name.split()[0].lower()
+
+    for row in rows:
+        date_str = row[0]
+        data = json.loads(row[1])
+
+        # Find this child's data
+        child_data = None
+        for name, child in data.get("children", {}).items():
+            if name.split()[0].lower() == first_name:
+                child_data = child
+                break
+
+        if not child_data:
+            continue
+
+        # Extract all events
+        # Sign in/out
+        if child_data.get("sign_in"):
+            events.append({
+                "date": date_str,
+                "time": child_data["sign_in"].split("T")[1][:5] if "T" in child_data["sign_in"] else "",
+                "type": "Sign In",
+                "details": ""
+            })
+        if child_data.get("sign_out"):
+            events.append({
+                "date": date_str,
+                "time": child_data["sign_out"].split("T")[1][:5] if "T" in child_data["sign_out"] else "",
+                "type": "Sign Out",
+                "details": ""
+            })
+
+        # Bottles
+        for b in child_data.get("bottles", []):
+            time_str = b["time"].split("T")[1][:5] if "T" in b["time"] else ""
+            events.append({
+                "date": date_str,
+                "time": time_str,
+                "type": "Bottle",
+                "details": f"{b.get('milk_type', 'Unknown')}, {b.get('offered', 0)}oz offered, {b.get('consumed', 0)}oz consumed"
+            })
+
+        # Fluids
+        for f in child_data.get("fluids", []):
+            time_str = f["time"].split("T")[1][:5] if "T" in f["time"] else ""
+            meal = f" ({f.get('meal')})" if f.get('meal') else ""
+            events.append({
+                "date": date_str,
+                "time": time_str,
+                "type": "Fluids",
+                "details": f"{f.get('ounces', 0)}oz{meal}"
+            })
+
+        # Diapers
+        for d in child_data.get("diapers", []):
+            time_str = d["time"].split("T")[1][:5] if "T" in d["time"] else ""
+            notes = f" - {d.get('notes')}" if d.get('notes') else ""
+            events.append({
+                "date": date_str,
+                "time": time_str,
+                "type": "Diaper",
+                "details": f"{d.get('type', 'Unknown')}{notes}"
+            })
+
+        # Naps
+        for n in child_data.get("naps", []):
+            start_str = n["start"].split("T")[1][:5] if "T" in n["start"] else ""
+            end_str = n["end"].split("T")[1][:5] if n.get("end") and "T" in n["end"] else "ongoing"
+            duration = n.get("duration_minutes", "")
+            duration_str = f", {duration}min" if duration else ""
+            position = f", {n.get('position')}" if n.get('position') else ""
+            events.append({
+                "date": date_str,
+                "time": start_str,
+                "type": "Nap",
+                "details": f"{start_str}-{end_str}{duration_str}{position}"
+            })
+
+        # Meals
+        for m in child_data.get("meals", []):
+            time_str = m["time"].split("T")[1][:5] if "T" in m["time"] else ""
+            meal_type = f"{m.get('type')}: " if m.get('type') else ""
+            events.append({
+                "date": date_str,
+                "time": time_str,
+                "type": "Meal",
+                "details": f"{meal_type}{m.get('items', '')}"
+            })
+
+    # Sort by date and time (newest first)
+    events.sort(key=lambda x: (x["date"], x["time"]), reverse=True)
+    return events
+
+
+async def get_weekly_summaries(days: int = 7) -> dict[str, list[dict]]:
+    """Get summaries for the past week, organized by child.
+
+    Returns a dict mapping child names to their daily summaries.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT date, data FROM summaries ORDER BY date DESC LIMIT ?",
+            (days,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+    # Organize by child
+    children_data: dict[str, list[dict]] = {}
+
+    for row in rows:
+        date_str = row[0]
+        data = json.loads(row[1])
+
+        for child_name, child_data in data.get("children", {}).items():
+            if child_name not in children_data:
+                children_data[child_name] = []
+
+            totals = child_data.get("totals", {})
+            children_data[child_name].append({
+                "date": date_str,
+                "sign_in": child_data.get("sign_in"),
+                "sign_out": child_data.get("sign_out"),
+                "nap_minutes": totals.get("nap_minutes", 0) or 0,
+                "wet_diapers": totals.get("wet_diapers", 0) or 0,
+                "bm_diapers": totals.get("bm_diapers", 0) or 0,
+                "bottle_oz": totals.get("bottle_oz", 0) or 0,
+                "fluids_oz": totals.get("fluids_oz", 0) or 0,
+                "meals_count": totals.get("meals_count", 0) or 0,
+            })
+
+    return children_data
+
+
 async def create_magic_token(hours_valid: int = 24) -> str:
     """Create a magic login token that expires after specified hours."""
     import secrets

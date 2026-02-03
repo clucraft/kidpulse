@@ -6,8 +6,11 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+import csv
+import io
+
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Form, Depends
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
@@ -270,6 +273,35 @@ async def get_child_stats(child_name: str, request: Request, user: str = Depends
     return {"child": child_name, "days": stats}
 
 
+@app.get("/api/export/{child_name}")
+async def export_child_csv(child_name: str, request: Request, user: str = Depends(require_auth), days: int = 30):
+    """Export child's events as CSV file."""
+    events = await storage.get_child_events_for_export(child_name, days)
+
+    if not events:
+        raise HTTPException(status_code=404, detail=f"No data found for {child_name}")
+
+    # Create CSV in memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Date", "Time", "Event Type", "Details"])
+
+    for event in events:
+        writer.writerow([event["date"], event["time"], event["type"], event["details"]])
+
+    output.seek(0)
+
+    # Generate filename
+    safe_name = child_name.replace(" ", "_").lower()
+    filename = f"kidpulse_{safe_name}_{days}days.csv"
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
 @app.post("/api/scrape")
 async def trigger_scrape(request: Request, background_tasks: BackgroundTasks, user: str = Depends(require_auth), notify: bool = False):
     """Manually trigger a scrape. Notifications disabled by default for manual scrapes."""
@@ -323,8 +355,9 @@ async def send_manual_notification(request: Request, user: str = Depends(require
         token = await storage.create_magic_token(hours_valid=24)
         magic_link = f"{_config.base_url}/auth/magic/{token}"
 
-    await notification_manager.send_summary(summary, magic_link=magic_link)
-    return {"message": "Notification sent", "magic_link_included": magic_link is not None}
+    # Send per-child notifications to avoid message cutoff
+    await notification_manager.send_daily_per_child(summary, magic_link=magic_link)
+    return {"message": "Notifications sent (per child)", "magic_link_included": magic_link is not None}
 
 
 async def run_scrape(notify: bool = True) -> None:
@@ -367,9 +400,9 @@ async def run_scrape(notify: bool = True) -> None:
                             token = await storage.create_magic_token(hours_valid=24)
                             magic_link = f"{_config.base_url}/auth/magic/{token}"
 
-                        # Send notification for today's events only
+                        # Send per-child notifications to avoid message cutoff
                         today_summary = summaries_by_date[today_str]
-                        await notification_manager.send_summary(today_summary, magic_link=magic_link)
+                        await notification_manager.send_daily_per_child(today_summary, magic_link=magic_link)
 
                 logger.info(f"Scrape completed: {total_events} events for {len(dates_saved)} date(s)")
 

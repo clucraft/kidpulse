@@ -44,6 +44,37 @@ async def run_scheduled_scrape(config: Config, notify: bool = True) -> None:
     await run_scrape(notify=notify)
 
 
+async def run_weekly_summary(config: Config) -> None:
+    """Send weekly summary notifications."""
+    logger.info("Sending weekly summary notifications...")
+
+    try:
+        # Get weekly data from storage
+        weekly_data = await storage.get_weekly_summaries(days=7)
+
+        if not weekly_data:
+            logger.warning("No weekly data to send")
+            return
+
+        # Set up notifiers
+        ntfy = NtfyNotifier(config.ntfy) if config.ntfy.enabled else None
+        telegram = TelegramNotifier(config.telegram) if config.telegram.enabled else None
+        notification_manager = NotificationManager(ntfy=ntfy, telegram=telegram)
+
+        # Generate magic link if auth is enabled
+        magic_link = None
+        if config.auth.enabled:
+            token = await storage.create_magic_token(hours_valid=24)
+            magic_link = f"{config.base_url}/auth/magic/{token}"
+
+        # Send per-child weekly summaries
+        results = await notification_manager.send_weekly_per_child(weekly_data, magic_link=magic_link)
+        logger.info(f"Weekly summary sent: {results}")
+
+    except Exception as e:
+        logger.exception(f"Weekly summary failed: {e}")
+
+
 async def scheduler_loop(config: Config) -> None:
     """Run the scheduler loop."""
     global shutdown_requested
@@ -60,6 +91,12 @@ async def scheduler_loop(config: Config) -> None:
     schedule.every().day.at(config.summary_time, tz=tz).do(
         lambda: asyncio.create_task(run_scheduled_scrape(config, notify=True))
     )
+
+    # Schedule weekly summary on Fridays at the same time
+    schedule.every().friday.at(config.summary_time, tz=tz).do(
+        lambda: asyncio.create_task(run_weekly_summary(config))
+    )
+    logger.info(f"Weekly summary scheduled for Fridays at {config.summary_time} ({config.timezone})")
 
     # Schedule interval scrapes (silent - no notifications)
     if config.scrape_interval > 0:
