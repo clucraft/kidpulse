@@ -42,7 +42,7 @@ _next_scrape_time: Optional[str] = None
 _serializer: Optional[URLSafeTimedSerializer] = None
 
 SESSION_COOKIE = "kidpulse_session"
-SESSION_MAX_AGE = 86400 * 7  # 7 days
+SESSION_MAX_AGE = 86400 * 30  # 30 days
 
 
 def set_config(config: Config) -> None:
