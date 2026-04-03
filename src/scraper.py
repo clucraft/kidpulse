@@ -337,7 +337,7 @@ class PlaygroundScraper:
         feed_items = await self.page.query_selector_all('[class*="MuiCard"], [class*="MuiPaper"], [class*="card"]')
 
         if len(feed_items) < 3:
-            feed_items = await self.page.query_selector_all('div:has-text("Occurred at"), div:has-text("From Jan"), div:has-text("From Feb")')
+            feed_items = await self.page.query_selector_all('div:has-text("Occurred at"), div:has-text("From ")')
 
         if len(feed_items) < 3:
             main_content = await self.page.query_selector('main')
@@ -379,7 +379,21 @@ class PlaygroundScraper:
 
     def _parse_full_feed_text(self, full_text: str, child: ChildSummary, date: datetime) -> ChildSummary:
         """Parse events from full page text when individual items can't be found."""
-        today_str = date.strftime("%b %d, %Y")
+        # Build date strings for matching - use both zero-padded and non-padded day
+        # because strftime %d is zero-padded but the website uses non-padded days
+        month_abbr = date.strftime("%b")
+        day_nopad = str(date.day)
+        day_padded = date.strftime("%d")
+        year = str(date.year)
+        today_variants = [
+            f"{month_abbr} {day_nopad}, {year}",   # "Apr 3, 2026"
+            f"{month_abbr} {day_padded}, {year}",   # "Apr 03, 2026"
+            f"{month_abbr} {day_nopad}",             # "Apr 3"
+            f"{month_abbr} {day_padded}",            # "Apr 03"
+        ]
+
+        def is_today(text: str) -> bool:
+            return any(v in text for v in today_variants)
 
         # Split by common patterns that separate feed items
         # Look for lines containing "Recorded by" which starts each item
@@ -396,7 +410,7 @@ class PlaygroundScraper:
                 # Process previous item if it exists and is from today
                 if current_item:
                     item_text = '\n'.join(current_item)
-                    if today_str in item_text or date.strftime("%b %d") in item_text:
+                    if is_today(item_text):
                         self._parse_feed_item_sync(item_text, child, date)
                 current_item = [line]
             else:
@@ -405,7 +419,7 @@ class PlaygroundScraper:
         # Don't forget the last item
         if current_item:
             item_text = '\n'.join(current_item)
-            if today_str in item_text or date.strftime("%b %d") in item_text:
+            if is_today(item_text):
                 self._parse_feed_item_sync(item_text, child, date)
 
         return child
@@ -506,9 +520,14 @@ class PlaygroundScraper:
         elif "napping" in text_lower or "nap" in text_lower:
             nap = self._parse_napping(text, date)
             if nap:
-                # Deduplicate by start time
-                existing_times = {n.start_time for n in child.naps}
-                if nap.start_time not in existing_times:
+                existing = next((n for n in child.naps if n.start_time == nap.start_time), None)
+                if existing:
+                    if nap.end_time and not existing.end_time:
+                        existing.end_time = nap.end_time
+                        if nap.position and not existing.position:
+                            existing.position = nap.position
+                        logger.info(f"Updated nap end time: {nap.start_time} - {nap.end_time}")
+                else:
                     child.naps.append(nap)
                     logger.info(f"Parsed nap: {nap.start_time} - {nap.end_time}")
 
@@ -626,9 +645,14 @@ class PlaygroundScraper:
         elif "nap" in text_lower:
             nap = self._parse_napping(text, date)
             if nap:
-                # Deduplicate by start time
-                existing_times = {n.start_time for n in child.naps}
-                if nap.start_time not in existing_times:
+                existing = next((n for n in child.naps if n.start_time == nap.start_time), None)
+                if existing:
+                    if nap.end_time and not existing.end_time:
+                        existing.end_time = nap.end_time
+                        if nap.position and not existing.position:
+                            existing.position = nap.position
+                        logger.info(f"Updated nap end time: {nap.start_time} - {nap.end_time}")
+                else:
                     child.naps.append(nap)
                     logger.info(f"Parsed nap: {nap.start_time} - {nap.end_time}")
 
@@ -813,6 +837,7 @@ class PlaygroundScraper:
 
     def _parse_napping(self, text: str, date: datetime) -> Optional[NappingEvent]:
         """Parse napping event from text."""
+        logger.info(f"Parsing nap from text: {text[:200]}")
         # Look for "From Jan 29, 2026 1:18 PM until 1:38 PM" pattern (with end time)
         from_until_match = re.search(
             r"From\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),?\s+(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)\s+until\s+(\d{1,2}):(\d{2})\s*(AM|PM)",
@@ -821,6 +846,7 @@ class PlaygroundScraper:
         )
 
         if from_until_match:
+            logger.info(f"Matched From...until pattern: {from_until_match.group()}")
             month_str = from_until_match.group(1)
             day = int(from_until_match.group(2))
             year = int(from_until_match.group(3))
@@ -856,8 +882,9 @@ class PlaygroundScraper:
 
             return NappingEvent(start_time=start_time, end_time=end_time, position=position)
 
-        # Also handle "Occurred at" format (nap without end time - just start time logged)
+        # Also handle "Occurred at" format (nap without end time / ongoing nap)
         # Example: "Occurred at Jan 29, 2026 1:10 PM · Back"
+        logger.info("No From...until pattern found, trying Occurred at pattern")
         occurred_match = re.search(
             r"Occurred at\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),?\s+(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)",
             text,
