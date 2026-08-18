@@ -245,29 +245,21 @@ class PlaygroundScraper:
 
         # Wait for page to load (don't use networkidle - feed may have continuous polling)
         await self.page.wait_for_load_state("domcontentloaded")
+
+        # The URL slug does not choose the organization - the active account does.
+        # Switching lands on /parent/home, so come back to the feed afterwards.
+        if await self._ensure_active_organization():
+            if self.config.organization:
+                feed_url = f"{self.config.base_url}/app/{self.config.organization}/parent/feed"
+                logger.info(f"Navigating to feed: {feed_url}")
+                await self.page.goto(feed_url)
+                await self.page.wait_for_load_state("domcontentloaded")
+
         await self._wait_for_feed_ready()
 
         # Get list of children (tabs)
         children = await self._get_child_tabs()
         logger.info(f"Found {len(children)} children: {children}")
-
-        # The organization slug in the feed URL can change (e.g. WABASH_LANDING -> CENTRAL).
-        # An empty feed is the symptom, so re-discover the slug before giving up.
-        if not children and self.config.organization:
-            discovered = await self._discover_organization()
-            if discovered and discovered != self.config.organization:
-                logger.warning(
-                    f"Organization '{self.config.organization}' looks stale - the app redirects to "
-                    f"'{discovered}'. Using it for this run; update PLAYGROUND_ORGANIZATION to make it stick."
-                )
-                self.config.organization = discovered
-                feed_url = f"{self.config.base_url}/app/{discovered}/parent/feed"
-                logger.info(f"Navigating to feed: {feed_url}")
-                await self.page.goto(feed_url)
-                await self.page.wait_for_load_state("domcontentloaded")
-                await self._wait_for_feed_ready()
-                children = await self._get_child_tabs()
-                logger.info(f"Found {len(children)} children: {children}")
 
         # Accounts with a single child have no tab strip - scrape whatever feed is showing
         # rather than hunting for a tab that was never rendered.
@@ -320,19 +312,109 @@ class PlaygroundScraper:
 
         await asyncio.sleep(1)  # Let the last few cards settle
 
-    async def _discover_organization(self) -> Optional[str]:
-        """Ask the app which organization we belong to by following its own redirect."""
+    def _wanted_account_label(self) -> str:
+        """The account switcher's label for the configured organization."""
+        if self.config.account:
+            return self.config.account
+        return self.config.organization.replace("_", " ").title()
+
+    @staticmethod
+    def _same_org(a: str, b: str) -> bool:
+        """Compare org names ignoring case, spaces and punctuation."""
+        normalize = lambda s: re.sub(r"[^a-z0-9]", "", (s or "").lower())
+        return bool(normalize(a)) and normalize(a) == normalize(b)
+
+    async def _active_organization(self) -> str:
+        """Read the organization the app is actually serving.
+
+        The title is "Playground - Central - Feed"; the header repeats the name.
+        """
         try:
-            await self.page.goto(f"{self.config.base_url}/signin")
-            await self.page.wait_for_load_state("domcontentloaded")
-            await asyncio.sleep(3)  # Wait for React to redirect a logged-in session
-            match = re.search(r"/app/([^/]+)/", self.page.url)
-            if match:
-                return match.group(1)
-            logger.warning(f"Could not discover organization from URL: {self.page.url}")
+            parts = [p.strip() for p in (await self.page.title()).split(" - ")]
+            if len(parts) >= 2 and parts[0].lower().startswith("playground"):
+                return parts[1]
         except Exception as e:
-            logger.warning(f"Organization discovery failed: {e}")
-        return None
+            logger.debug(f"Could not read organization from title: {e}")
+        try:
+            header = await self.page.query_selector("header")
+            if header:
+                lines = [l.strip() for l in (await header.inner_text()).split("\n") if l.strip()]
+                if lines:
+                    return lines[0]
+        except Exception as e:
+            logger.debug(f"Could not read organization from header: {e}")
+        return ""
+
+    async def _wait_for_active_organization(self, timeout: int = 30) -> str:
+        """Poll until the app shell has rendered and reports its organization."""
+        for _ in range(timeout):
+            active = await self._active_organization()
+            if active and not self._same_org(active, "Playground"):
+                return active
+            await asyncio.sleep(1)
+        return ""
+
+    async def _ensure_active_organization(self) -> bool:
+        """Make sure the session is on the configured organization.
+
+        The slug in the URL is cosmetic - the app serves whichever account is active,
+        so /app/CENTRAL/parent/feed will happily render Wabash Landing's feed. The
+        account switcher is the only thing that changes it.
+
+        Returns True if the account was switched (the caller has to navigate again,
+        because switching drops us on /parent/home).
+        """
+        wanted = self._wanted_account_label()
+        if not wanted:
+            return False
+
+        active = await self._wait_for_active_organization()
+        if not active:
+            # Better to scrape and let the caller see odd data than to open the
+            # switcher blind and click the wrong account.
+            logger.warning("Could not determine the active organization - not switching")
+            return False
+
+        if self._same_org(active, wanted):
+            logger.info(f"Active account: '{active}'")
+            return False
+
+        logger.info(f"Active account is '{active}', switching to '{wanted}'")
+        try:
+            # The profile menu is the last button in the header (avatar + chevron)
+            await self.page.locator("header button:has(img)").last.click()
+            await self.page.click("text=Switch account", timeout=10000)
+
+            # Rows read "Guardian | Killian and Ezra | Central"
+            row = self.page.get_by_text(
+                re.compile(rf"\|\s*{re.escape(wanted)}\s*$", re.IGNORECASE)
+            ).first
+            await row.click(timeout=10000)
+
+            for _ in range(30):
+                await asyncio.sleep(1)
+                if self._same_org(await self._active_organization(), wanted):
+                    logger.info(f"Switched to '{wanted}'")
+                    return True
+            logger.error(f"Switched account but '{wanted}' never became active")
+
+        except Exception as e:
+            logger.error(f"Could not switch to account '{wanted}': {e}")
+            await self.screenshot("account_switch_failed.png")
+            await self._log_available_accounts()
+
+        return False
+
+    async def _log_available_accounts(self) -> None:
+        """List what the switcher offers, so a label mismatch is obvious in the logs."""
+        try:
+            rows = await self.page.query_selector_all("text=/Guardian \\|/")
+            labels = [(await r.inner_text()).replace("\n", " | ").strip() for r in rows]
+            if labels:
+                logger.error(f"Accounts offered by the switcher: {labels[:10]}")
+                logger.error("Set PLAYGROUND_ACCOUNT to the label after the last '|'")
+        except Exception as e:
+            logger.debug(f"Could not list accounts: {e}")
 
     async def _get_child_tabs(self) -> list[str]:
         """Get list of child names from tabs."""

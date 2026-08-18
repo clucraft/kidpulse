@@ -100,7 +100,8 @@ Access the dashboard at `http://localhost:8080`
 |----------|-------------|---------|
 | `PLAYGROUND_EMAIL` | Your Playground login email | Required |
 | `PLAYGROUND_PASSWORD` | Your Playground password | Required |
-| `PLAYGROUND_ORGANIZATION` | Organization ID from your Playground URL (auto-detected if it goes stale) | `CENTRAL` |
+| `PLAYGROUND_ORGANIZATION` | Organization ID from your Playground URL | `CENTRAL` |
+| `PLAYGROUND_ACCOUNT` | Account switcher label, if it differs from the org slug | Derived from slug |
 | `NTFY_ENABLED` | Enable NTFY notifications | `true` |
 | `NTFY_SERVER` | NTFY server URL | `https://ntfy.sh` |
 | `NTFY_TOPIC` | NTFY topic name | `kidpulse` |
@@ -246,6 +247,19 @@ Includes emojis for bottles, diapers, naps, meals, and attendance with formatted
 1. Create a bot via [@BotFather](https://t.me/botfather)
 2. Get your chat ID via [@userinfobot](https://t.me/userinfobot)
 3. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in your `.env` file
+
+## Multiple organizations
+
+If your login belongs to more than one organization, the slug in the feed URL does
+**not** select which one you see - the app serves whichever account is currently
+active, so `/app/CENTRAL/parent/feed` can render a different organization's feed
+entirely. KidPulse reads the active organization from the page and, when it differs
+from `PLAYGROUND_ORGANIZATION`, switches through the profile menu
+(**Switch account** -> the matching account) before scraping.
+
+Set `PLAYGROUND_ACCOUNT` if the switcher's label doesn't match the slug. When a
+switch fails, the log lists every label offered and a screenshot is written to
+`session_data/account_switch_failed.png`.
 
 ## Unraid Deployment
 

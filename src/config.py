@@ -19,6 +19,9 @@ class PlaygroundConfig:
     email: str
     password: str
     organization: str
+    # Label shown in the account switcher, when it differs from the URL slug
+    # (e.g. slug WABASH_LANDING is listed as "Wabash Landing")
+    account: str = ""
     base_url: str = "https://app.tryplayground.com"
 
 
@@ -85,6 +88,7 @@ class Config:
                 email=os.getenv("PLAYGROUND_EMAIL", ""),
                 password=os.getenv("PLAYGROUND_PASSWORD", ""),
                 organization=os.getenv("PLAYGROUND_ORGANIZATION", "CENTRAL"),
+                account=os.getenv("PLAYGROUND_ACCOUNT", ""),
             ),
             ntfy=NtfyConfig(
                 enabled=get_bool("NTFY_ENABLED"),
