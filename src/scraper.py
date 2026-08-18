@@ -98,54 +98,112 @@ class PlaygroundScraper:
             logger.info("Redirected away from signin - already logged in")
             return True
 
-        # Check if login form exists - if not, we're already logged in
-        email_input = await self.page.query_selector('input[placeholder*="Email" i]')
+        # Still on /signin, so we are not logged in and the form has to be there.
+        # Give React a chance to render it before deciding it is missing.
+        try:
+            email_input = await self.page.wait_for_selector(
+                'input[type="email"], input[placeholder*="Email" i], input[name*="email" i]',
+                timeout=15000,
+            )
+        except Exception:
+            email_input = None
 
         if not email_input:
-            logger.info("No login form found - assuming logged in")
-            await self.screenshot("no_form_found.png")
-            return True
+            logger.error("On the sign-in page but no email field appeared")
+            await self._report_login_failure("login_no_email_field.png")
+            return False
 
         logger.info("Login form found, filling credentials...")
         try:
-            # Fill credentials
             await email_input.fill(self.config.email)
 
-            password_input = await self.page.query_selector('input[placeholder*="Password" i]')
-            if password_input:
-                await password_input.fill(self.config.password)
+            # Some sign-in flows ask for the email first and only then reveal the
+            # password field, so submit the email if we don't see one yet.
+            password_input = await self._find_password_input()
+            if not password_input:
+                logger.info("No password field yet - submitting email first")
+                await self._click_submit_button()
+                password_input = await self._find_password_input(timeout=10000)
 
-            # Click login button
-            login_btn = await self.page.query_selector('button:has-text("Log in")')
-            if login_btn:
-                await login_btn.click()
+            if not password_input:
+                logger.error("Could not find a password field on the sign-in page")
+                await self._report_login_failure("login_no_password_field.png")
+                return False
 
-            # Wait for page to process login
-            await asyncio.sleep(5)
-            await self.page.wait_for_load_state("networkidle", timeout=10000)
+            await password_input.fill(self.config.password)
 
-            logger.info("Login submitted, proceeding...")
-            return True
+            if not await self._click_submit_button():
+                # Fall back to submitting the form from the password field
+                logger.info("No submit button matched - pressing Enter instead")
+                await password_input.press("Enter")
 
         except Exception as e:
-            # Even if there was an error, check if we ended up logged in
             logger.warning(f"Login operation had issue: {e}")
-            await self.screenshot("login_issue.png")
 
-            # Check if we're now on a non-signin page (meaning login worked)
-            current_url = self.page.url
-            if "/signin" not in current_url:
-                logger.info(f"Despite error, now at {current_url} - login likely succeeded")
+        # Whatever happened above, the only thing that matters is whether we are
+        # actually signed in now. Leaving /signin is the signal.
+        if await self._wait_until_signed_in():
+            logger.info(f"Login successful - now at {self.page.url}")
+            return True
+
+        logger.error("Login failed - still on the sign-in page")
+        await self._report_login_failure("login_failed.png")
+        return False
+
+    async def _find_password_input(self, timeout: int = 0):
+        """Find the password field, preferring the input type over placeholder text."""
+        selector = 'input[type="password"], input[placeholder*="Password" i], input[name*="password" i]'
+        if timeout:
+            try:
+                return await self.page.wait_for_selector(selector, timeout=timeout)
+            except Exception:
+                return None
+        return await self.page.query_selector(selector)
+
+    async def _click_submit_button(self) -> bool:
+        """Click whichever submit button this version of the sign-in page uses."""
+        for selector in (
+            'button:has-text("Log in")',
+            'button:has-text("Sign in")',
+            'button:has-text("Continue")',
+            'button:has-text("Next")',
+            'button[type="submit"]',
+        ):
+            button = await self.page.query_selector(selector)
+            if button and await button.is_enabled():
+                await button.click()
+                logger.info(f"Clicked sign-in button matching {selector}")
                 return True
+        return False
 
-            # Check if login form is gone
-            email_input = await self.page.query_selector('input[placeholder*="Email" i]')
-            if not email_input:
-                logger.info("Login form gone - assuming login succeeded")
+    async def _wait_until_signed_in(self, timeout: int = 25000) -> bool:
+        """Poll until the app moves us off the sign-in page."""
+        deadline = timeout / 1000
+        waited = 0.0
+        while waited < deadline:
+            if "/signin" not in self.page.url:
                 return True
+            await asyncio.sleep(1)
+            waited += 1
+        return "/signin" not in self.page.url
 
-            logger.error("Login truly failed")
-            return False
+    async def _report_login_failure(self, screenshot_name: str) -> None:
+        """Capture whatever the page is telling us so the logs explain the failure."""
+        await self.screenshot(screenshot_name)
+        logger.error(f"Sign-in page URL: {self.page.url}")
+        try:
+            for selector in ('[role="alert"]', '[class*="error" i]', '[class*="Error"]'):
+                for node in await self.page.query_selector_all(selector):
+                    message = (await node.inner_text()).strip()
+                    if message:
+                        logger.error(f"Sign-in page message: {message[:200]}")
+            buttons = [
+                (await b.inner_text()).strip()
+                for b in await self.page.query_selector_all("button")
+            ]
+            logger.error(f"Buttons on page: {[b for b in buttons if b][:10]}")
+        except Exception as e:
+            logger.debug(f"Could not read sign-in page diagnostics: {e}")
 
     async def get_daily_events(self, date: Optional[datetime] = None, timezone: str = "America/New_York") -> DailySummary:
         """Scrape events for all children for a given day (defaults to today)."""
