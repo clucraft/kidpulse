@@ -84,7 +84,7 @@ class Config:
             playground=PlaygroundConfig(
                 email=os.getenv("PLAYGROUND_EMAIL", ""),
                 password=os.getenv("PLAYGROUND_PASSWORD", ""),
-                organization=os.getenv("PLAYGROUND_ORGANIZATION", ""),
+                organization=os.getenv("PLAYGROUND_ORGANIZATION", "CENTRAL"),
             ),
             ntfy=NtfyConfig(
                 enabled=get_bool("NTFY_ENABLED"),

@@ -73,7 +73,7 @@ Edit `.env` with your credentials:
 PLAYGROUND_EMAIL=your-email@example.com
 PLAYGROUND_PASSWORD=your-password
 # Get from your Playground URL: https://app.tryplayground.com/app/YOUR_ORG_ID/parent/feed
-PLAYGROUND_ORGANIZATION=YOUR_ORG_ID
+PLAYGROUND_ORGANIZATION=CENTRAL
 
 NTFY_ENABLED=true
 NTFY_TOPIC=your-unique-topic
@@ -100,7 +100,7 @@ Access the dashboard at `http://localhost:8080`
 |----------|-------------|---------|
 | `PLAYGROUND_EMAIL` | Your Playground login email | Required |
 | `PLAYGROUND_PASSWORD` | Your Playground password | Required |
-| `PLAYGROUND_ORGANIZATION` | Organization ID from your Playground URL | Required |
+| `PLAYGROUND_ORGANIZATION` | Organization ID from your Playground URL (auto-detected if it goes stale) | `CENTRAL` |
 | `NTFY_ENABLED` | Enable NTFY notifications | `true` |
 | `NTFY_SERVER` | NTFY server URL | `https://ntfy.sh` |
 | `NTFY_TOPIC` | NTFY topic name | `kidpulse` |

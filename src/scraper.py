@@ -187,11 +187,36 @@ class PlaygroundScraper:
 
         # Wait for page to load (don't use networkidle - feed may have continuous polling)
         await self.page.wait_for_load_state("domcontentloaded")
-        await asyncio.sleep(5)  # Give React time to render feed content
+        await self._wait_for_feed_ready()
 
         # Get list of children (tabs)
         children = await self._get_child_tabs()
         logger.info(f"Found {len(children)} children: {children}")
+
+        # The organization slug in the feed URL can change (e.g. WABASH_LANDING -> CENTRAL).
+        # An empty feed is the symptom, so re-discover the slug before giving up.
+        if not children and self.config.organization:
+            discovered = await self._discover_organization()
+            if discovered and discovered != self.config.organization:
+                logger.warning(
+                    f"Organization '{self.config.organization}' looks stale - the app redirects to "
+                    f"'{discovered}'. Using it for this run; update PLAYGROUND_ORGANIZATION to make it stick."
+                )
+                self.config.organization = discovered
+                feed_url = f"{self.config.base_url}/app/{discovered}/parent/feed"
+                logger.info(f"Navigating to feed: {feed_url}")
+                await self.page.goto(feed_url)
+                await self.page.wait_for_load_state("domcontentloaded")
+                await self._wait_for_feed_ready()
+                children = await self._get_child_tabs()
+                logger.info(f"Found {len(children)} children: {children}")
+
+        # Accounts with a single child have no tab strip - scrape whatever feed is showing
+        # rather than hunting for a tab that was never rendered.
+        if not children:
+            logger.warning("No child tabs found - scraping the currently displayed feed")
+            summary.children["Child"] = await self._scrape_child_feed("Child", date)
+            return summary
 
         # Scrape each child's feed
         for i, child_name in enumerate(children):
@@ -212,6 +237,45 @@ class PlaygroundScraper:
         # events by their actual date and save separate summaries.
         return summary
 
+    async def _wait_for_feed_ready(self) -> None:
+        """Wait for the React feed to actually render.
+
+        The feed is a client-rendered SPA: the document fires domcontentloaded long
+        before the child tabs and posts exist, so a fixed sleep silently scrapes an
+        empty page on a slow load.
+        """
+        try:
+            await self.page.wait_for_selector('[role="tab"]', timeout=45000)
+            logger.info("Child tabs rendered")
+        except Exception:
+            logger.warning("Child tabs did not render within 45s - continuing anyway")
+
+        try:
+            # Posts stream in after the tab strip; waiting for the first one keeps us
+            # from parsing a feed that is still empty.
+            await self.page.wait_for_selector(
+                "text=/Occurred at|Recorded by|Posted by/", timeout=20000
+            )
+            logger.info("Feed posts rendered")
+        except Exception:
+            logger.info("No feed posts detected (may simply be an empty day)")
+
+        await asyncio.sleep(1)  # Let the last few cards settle
+
+    async def _discover_organization(self) -> Optional[str]:
+        """Ask the app which organization we belong to by following its own redirect."""
+        try:
+            await self.page.goto(f"{self.config.base_url}/signin")
+            await self.page.wait_for_load_state("domcontentloaded")
+            await asyncio.sleep(3)  # Wait for React to redirect a logged-in session
+            match = re.search(r"/app/([^/]+)/", self.page.url)
+            if match:
+                return match.group(1)
+            logger.warning(f"Could not discover organization from URL: {self.page.url}")
+        except Exception as e:
+            logger.warning(f"Organization discovery failed: {e}")
+        return None
+
     async def _get_child_tabs(self) -> list[str]:
         """Get list of child names from tabs."""
         try:
@@ -221,7 +285,7 @@ class PlaygroundScraper:
             children = []
             for tab in tabs:
                 text = await tab.inner_text()
-                text = text.strip()
+                text = self._clean_tab_text(text)
                 if text and not text.lower() in ["feed", "home", "calendar", "chat"]:
                     children.append(text)
 
@@ -240,11 +304,22 @@ class PlaygroundScraper:
                         if part and len(part.split()) >= 2 and not part.lower() in ["feed", "home"]:
                             children.append(part)
 
-            return children if children else ["Child"]
+            return children
 
         except Exception as e:
             logger.warning(f"Could not get child tabs: {e}")
-            return ["Child"]
+            return []
+
+    @staticmethod
+    def _clean_tab_text(text: str) -> str:
+        """Normalize a tab label.
+
+        Each tab renders the name twice - a visible copy and a hidden bold copy that
+        reserves width for the selected state - so the label can come back doubled.
+        """
+        text = re.sub(r"\s+", " ", text).strip()
+        doubled = re.fullmatch(r"(.+?)\s*\1", text)
+        return doubled.group(1).strip() if doubled else text
 
     async def _select_child_tab(self, child_name: str) -> bool:
         """Click on a child's tab to show their feed. Returns True if clicked."""
@@ -254,7 +329,7 @@ class PlaygroundScraper:
             if tab:
                 await tab.click()
                 logger.info(f"Clicked tab for {child_name}")
-                await asyncio.sleep(2)  # Wait for feed to update
+                await self._wait_for_tab_selected(child_name)
                 return True
 
             # Alternative: look for any clickable element with the child's name
@@ -262,18 +337,34 @@ class PlaygroundScraper:
             if tab:
                 await tab.click()
                 logger.info(f"Clicked button for {child_name}")
-                await asyncio.sleep(2)
+                await self._wait_for_tab_selected(child_name)
                 return True
 
-            # Try text-based selector
-            await self.page.click(f'text="{child_name}"')
+            # Try text-based selector (unquoted: the label may be doubled by the
+            # hidden bold copy, so an exact match would miss it)
+            await self.page.click(f"text={child_name}", timeout=10000)
             logger.info(f"Clicked text for {child_name}")
-            await asyncio.sleep(2)
+            await self._wait_for_tab_selected(child_name)
             return True
 
         except Exception as e:
             logger.warning(f"Could not select tab for {child_name}: {e}")
             return False
+
+    async def _wait_for_tab_selected(self, child_name: str) -> None:
+        """Confirm the click landed before scraping.
+
+        Without this we can read the previous child's feed and file their events
+        under the wrong name.
+        """
+        try:
+            await self.page.wait_for_selector(
+                f'[role="tab"][aria-selected="true"]:has-text("{child_name}")', timeout=15000
+            )
+            logger.info(f"{child_name}'s tab is selected")
+        except Exception:
+            logger.warning(f"Could not confirm {child_name}'s tab is selected - continuing")
+        await asyncio.sleep(2)  # Let the feed swap in
 
     async def _scroll_to_load_all_content(self, max_scrolls: int = 2) -> None:
         """Scroll down to trigger lazy loading of feed content.
@@ -671,7 +762,21 @@ class PlaygroundScraper:
         items_match = re.search(r"Meal items?:\s*([^\n]+)", text, re.IGNORECASE)
         meal_items = items_match.group(1).strip() if items_match else "Unknown"
 
-        # Try to determine meal type from context or time
+        # The feed labels the meal itself: "Occurred at Aug 17, 2026 10:44 AM · Breakfast Some".
+        # Trust that label - guessing from the clock mislabels a late breakfast as lunch.
+        label_match = re.search(
+            r"·\s*(AM Snack|PM Snack|Breakfast|Lunch|Dinner|Snack)\b",
+            text,
+            re.IGNORECASE,
+        )
+        if label_match:
+            return EatingEvent(
+                time=timestamp,
+                meal_items=meal_items,
+                meal_type=label_match.group(1).title().replace("Am ", "AM ").replace("Pm ", "PM "),
+            )
+
+        # Fall back to the time of day when the card has no label
         meal_type = None
         hour = timestamp.hour
         if hour < 10:
